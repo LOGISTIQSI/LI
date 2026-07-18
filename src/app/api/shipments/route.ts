@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { calculateMissionReadiness } from "@/lib/ai/mission-readiness";
 
 export async function GET(request: NextRequest) {
   const db = getDb();
@@ -57,11 +58,9 @@ export async function POST(request: NextRequest) {
   const seq = String((count.cnt + 1)).padStart(5, "0");
   const shipmentId = `SHIP-${year}-${seq}`;
 
-  // Calculate mock readiness & confidence scores on creation
-  const missionReadiness = Math.floor(60 + Math.random() * 35); // 60-95
-  const operationalConfidence = parseFloat((0.65 + Math.random() * 0.3).toFixed(2)); // 0.65-0.95
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
+  // Insert with NULL scores — calculated after insert
   const stmt = db.prepare(`
     INSERT INTO shipments (
       shipment_id, company_id, logistics_company_id, driver_id, vehicle_id,
@@ -73,7 +72,7 @@ export async function POST(request: NextRequest) {
       operational_confidence_score, confidence_calculated_at
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready',
-      ?, ?, ?, ?, ?, ?
+      ?, ?, NULL, NULL, NULL, NULL
     )
   `);
 
@@ -96,14 +95,20 @@ export async function POST(request: NextRequest) {
     body.dangerous_goods ? body.dg_class : null,
     JSON.stringify(body.border_crossings || []),
     body.departure_scheduled,
-    body.eta,
-    missionReadiness,
-    now,
-    operationalConfidence,
-    now
+    body.eta
   );
 
-  const newShipment = db.prepare("SELECT * FROM shipments WHERE id = ?").get(result.lastInsertRowid);
+  const shipmentNumericId = Number(result.lastInsertRowid);
+
+  // Auto-calculate Mission Readiness Score after creation
+  try {
+    await calculateMissionReadiness(shipmentNumericId);
+  } catch (err) {
+    console.error("Failed to calculate mission readiness on creation:", err);
+    // Still return the shipment even if MRS calculation fails
+  }
+
+  const newShipment = db.prepare("SELECT * FROM shipments WHERE id = ?").get(shipmentNumericId);
 
   return NextResponse.json(newShipment, { status: 201 });
 }

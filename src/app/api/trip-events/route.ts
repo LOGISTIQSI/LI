@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { calculateOperationalConfidence } from "@/lib/ai/operational-confidence";
 
 // POST — Record a trip event (GPS data point)
 export async function POST(request: NextRequest) {
@@ -94,6 +95,14 @@ export async function POST(request: NextRequest) {
       }
       break;
     }
+  }
+
+  // Recalculate Operational Confidence Score after each trip event
+  try {
+    await calculateOperationalConfidence(shipment.id);
+  } catch (err) {
+    console.error("Failed to recalculate operational confidence after trip event:", err);
+    // Don't fail the request if OCS calculation fails
   }
 
   const created = db

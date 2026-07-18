@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -20,7 +20,11 @@ import {
   ChevronRight,
   FileText,
   ExternalLink,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
+import ScoreGauge from "@/components/ui/ScoreGauge";
 
 interface ShipmentDetail {
   id: number;
@@ -73,6 +77,31 @@ interface ComplianceDoc {
   status: string;
   expiry_date: string | null;
   issuing_authority: string;
+}
+
+interface FactorResult {
+  factor: string;
+  label: string;
+  weight: number;
+  rawScore: number;
+  weightedScore: number;
+  details: string[];
+}
+
+interface ReadinessResult {
+  score: number;
+  threshold: string;
+  hardGateTriggered: boolean;
+  hardGateReason: string | null;
+  factors: FactorResult[];
+  calculatedAt: string;
+}
+
+interface ConfidenceResult {
+  score: number;
+  threshold: string;
+  factors: FactorResult[];
+  calculatedAt: string;
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -134,6 +163,11 @@ function statusBadge(status: string) {
       classes:
         "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800",
     },
+    pending: {
+      label: "Pending",
+      classes:
+        "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700",
+    },
   };
   const s = map[status] || map.draft;
   return (
@@ -167,14 +201,6 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function readinessGauge(score: number | null) {
-  if (score === null)
-    return { color: "text-slate-400", bg: "bg-slate-100 dark:bg-slate-800", label: "N/A" };
-  if (score >= 80) return { color: "text-emerald-500", bg: "bg-emerald-500", label: "High" };
-  if (score >= 50) return { color: "text-amber-500", bg: "bg-amber-500", label: "Medium" };
-  return { color: "text-red-500", bg: "bg-red-500", label: "Low" };
-}
-
 export default function ShipmentDetailPage() {
   const params = useParams();
   const [data, setData] = useState<{
@@ -184,6 +210,11 @@ export default function ShipmentDetailPage() {
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [recalculating, setRecalculating] = useState(false);
+  const [mrsResult, setMrsResult] = useState<ReadinessResult | null>(null);
+  const [ocsResult, setOcsResult] = useState<ConfidenceResult | null>(null);
+  const [showMrsFactors, setShowMrsFactors] = useState(false);
+  const [showOcsFactors, setShowOcsFactors] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -200,6 +231,54 @@ export default function ShipmentDetailPage() {
     }
     load();
   }, [params.id]);
+
+  const handleReevaluateReadiness = useCallback(async () => {
+    if (!data) return;
+    setRecalculating(true);
+    try {
+      const res = await fetch(`/api/shipments/${data.shipment.id}/readiness`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const result: ReadinessResult = await res.json();
+        setMrsResult(result);
+        // Also update the local shipment data with the new score
+        setData((prev) =>
+          prev
+            ? { ...prev, shipment: { ...prev.shipment, mission_readiness_score: result.score } }
+            : prev
+        );
+      }
+    } catch (err) {
+      console.error("Failed to re-evaluate readiness:", err);
+    }
+
+    // Also recalculate confidence
+    try {
+      const res = await fetch(`/api/shipments/${data.shipment.id}/confidence`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const result: ConfidenceResult = await res.json();
+        setOcsResult(result);
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                shipment: {
+                  ...prev.shipment,
+                  operational_confidence_score: result.score,
+                },
+              }
+            : prev
+        );
+      }
+    } catch (err) {
+      console.error("Failed to re-evaluate confidence:", err);
+    }
+
+    setRecalculating(false);
+  }, [data]);
 
   if (loading) {
     return (
@@ -227,16 +306,66 @@ export default function ShipmentDetailPage() {
   }
 
   const { shipment, events, documents } = data;
-  const gauge = readinessGauge(shipment.mission_readiness_score);
   const borders: string[] = JSON.parse(shipment.border_crossings || "[]");
-  const confidence = shipment.operational_confidence_score;
-  const confidencePct = confidence !== null ? Math.round(confidence * 100) : null;
+  const mrsScore = mrsResult?.score ?? shipment.mission_readiness_score;
+  const ocsScore = ocsResult?.score ?? shipment.operational_confidence_score;
+  const ocsPct = ocsScore !== null ? Math.round(ocsScore * 100) : null;
+  const mrsFactors = mrsResult?.factors ?? null;
+  const ocsFactors = ocsResult?.factors ?? null;
+
+  // Determine MRS threshold label
+  const mrsThresholdLabel =
+    mrsResult?.threshold === "green"
+      ? "Mission Ready"
+      : mrsResult?.threshold === "amber"
+      ? "Caution"
+      : mrsResult?.threshold === "red"
+      ? "Not Ready"
+      : mrsScore !== null
+      ? mrsScore >= 80
+        ? "Mission Ready"
+        : mrsScore >= 50
+        ? "Caution"
+        : "Not Ready"
+      : "Unknown";
+
+  // Determine OCS threshold label
+  const ocsThresholdLabel =
+    ocsResult?.threshold === "on_track"
+      ? "On Track"
+      : ocsResult?.threshold === "at_risk"
+      ? "At Risk"
+      : ocsResult?.threshold === "critical"
+      ? "Critical"
+      : ocsPct !== null
+      ? ocsPct >= 85
+        ? "On Track"
+        : ocsPct >= 60
+        ? "At Risk"
+        : "Critical"
+      : "Unknown";
+
+  // MRS color thresholds
+  const mrsColorThresholds = [
+    { upTo: 49, color: "text-red-500", bgColor: "text-red-500" },
+    { upTo: 79, color: "text-amber-500", bgColor: "text-amber-500" },
+    { upTo: 100, color: "text-emerald-500", bgColor: "text-emerald-500" },
+  ];
+
+  // OCS color thresholds
+  const ocsColorThresholds = [
+    { upTo: 59, color: "text-red-500", bgColor: "text-red-500" },
+    { upTo: 84, color: "text-amber-500", bgColor: "text-amber-500" },
+    { upTo: 100, color: "text-emerald-500", bgColor: "text-emerald-500" },
+  ];
 
   // Doc stats
   const totalDocs = documents.length;
   const validDocs = documents.filter((d) => d.status === "valid").length;
   const missingDocs = documents.filter((d) => d.status === "missing").length;
-  const expiringDocs = documents.filter((d) => d.status === "expiring_soon" || d.status === "expired").length;
+  const expiringDocs = documents.filter(
+    (d) => d.status === "expiring_soon" || d.status === "expired"
+  ).length;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -261,69 +390,54 @@ export default function ShipmentDetailPage() {
         </div>
       </div>
 
-      {/* Status Bar */}
+      {/* Status Bar: Scores */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* Mission Readiness Score */}
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 flex items-center gap-4">
-          <div className="relative h-16 w-16 flex-shrink-0">
-            <svg className="h-16 w-16 -rotate-90" viewBox="0 0 64 64">
-              <circle
-                cx="32"
-                cy="32"
-                r="28"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="6"
-                className="text-slate-100 dark:text-slate-800"
-              />
-              <circle
-                cx="32"
-                cy="32"
-                r="28"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="6"
-                strokeLinecap="round"
-                strokeDasharray={`${((shipment.mission_readiness_score ?? 0) / 100) * 176} 176`}
-                className={gauge.color}
-              />
-            </svg>
-            <span
-              className={`absolute inset-0 flex items-center justify-center text-lg font-bold ${gauge.color}`}
-            >
-              {shipment.mission_readiness_score ?? "—"}
-            </span>
-          </div>
+          <ScoreGauge
+            value={mrsScore ?? 0}
+            size={80}
+            label=""
+            colorThresholds={mrsColorThresholds}
+            thresholdLabel={mrsThresholdLabel}
+          />
           <div>
             <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
               Mission Readiness
             </p>
             <p className="text-sm font-medium text-slate-900 dark:text-white">
-              {gauge.label}
+              {mrsThresholdLabel}
             </p>
+            {mrsResult?.hardGateTriggered && (
+              <p className="text-xs text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" />
+                Hard gate triggered
+              </p>
+            )}
           </div>
         </div>
 
         {/* Operational Confidence */}
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 flex items-center gap-4">
-          <div className="h-16 w-16 flex-shrink-0 flex items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-950/30">
-            <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-              {confidencePct !== null ? `${confidencePct}%` : "—"}
-            </span>
-          </div>
+          <ScoreGauge
+            value={ocsPct ?? 0}
+            size={80}
+            label=""
+            colorThresholds={ocsColorThresholds}
+            thresholdLabel={ocsThresholdLabel}
+          />
           <div>
             <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
               Operational Confidence
             </p>
             <p className="text-sm font-medium text-slate-900 dark:text-white">
-              {confidencePct !== null
-                ? confidencePct >= 85
-                  ? "Strong"
-                  : confidencePct >= 65
-                  ? "Moderate"
-                  : "At Risk"
-                : "Unknown"}
+              {ocsThresholdLabel}
             </p>
+            {ocsResult && (
+              <p className="text-xs text-slate-400 mt-1">
+                Score: {ocsResult.score.toFixed(3)}
+              </p>
+            )}
           </div>
         </div>
 
@@ -350,6 +464,184 @@ export default function ShipmentDetailPage() {
           </p>
         </div>
       </div>
+
+      {/* Re-evaluate Button */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={handleReevaluateReadiness}
+          disabled={recalculating}
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg transition-colors"
+        >
+          {recalculating ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
+          {recalculating ? "Re-evaluating…" : "Re-evaluate Readiness"}
+        </button>
+        {mrsResult && (
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            Last calculated: {formatDateTime(mrsResult.calculatedAt)}
+          </span>
+        )}
+      </div>
+
+      {/* Factor Breakdown */}
+      {(mrsFactors || ocsFactors) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* MRS Factor Breakdown */}
+          {mrsFactors && (
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+              <button
+                onClick={() => setShowMrsFactors(!showMrsFactors)}
+                className="w-full flex items-center justify-between"
+              >
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-blue-500" />
+                  Mission Readiness Breakdown
+                </h3>
+                {showMrsFactors ? (
+                  <ChevronUp className="h-4 w-4 text-slate-400" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-slate-400" />
+                )}
+              </button>
+
+              {showMrsFactors && (
+                <div className="mt-4 space-y-3">
+                  {mrsResult?.hardGateTriggered && mrsResult.hardGateReason && (
+                    <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50">
+                      <p className="text-xs font-semibold text-red-700 dark:text-red-400 mb-1">
+                        ⚠ Hard Gate Triggered — Score Capped at 49
+                      </p>
+                      <p className="text-xs text-red-600 dark:text-red-400">
+                        {mrsResult.hardGateReason}
+                      </p>
+                    </div>
+                  )}
+                  {mrsFactors.map((f) => (
+                    <div
+                      key={f.factor}
+                      className="rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800/50">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                              f.rawScore >= 80
+                                ? "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400"
+                                : f.rawScore >= 50
+                                ? "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400"
+                                : "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400"
+                            }`}
+                          >
+                            {f.rawScore}%
+                          </span>
+                          <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                            {f.label}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400">
+                          Weight: {Math.round(f.weight * 100)}%
+                        </span>
+                      </div>
+                      <div className="px-3 py-2">
+                        {f.details.map((d, i) => (
+                          <p
+                            key={i}
+                            className={`text-[11px] leading-relaxed ${
+                              d.startsWith("✓")
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : d.startsWith("⚠")
+                                ? "text-amber-600 dark:text-amber-400"
+                                : d.startsWith("✗")
+                                ? "text-red-600 dark:text-red-400"
+                                : "text-slate-500 dark:text-slate-400"
+                            }`}
+                          >
+                            {d}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* OCS Factor Breakdown */}
+          {ocsFactors && (
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+              <button
+                onClick={() => setShowOcsFactors(!showOcsFactors)}
+                className="w-full flex items-center justify-between"
+              >
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-blue-500" />
+                  Operational Confidence Breakdown
+                </h3>
+                {showOcsFactors ? (
+                  <ChevronUp className="h-4 w-4 text-slate-400" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-slate-400" />
+                )}
+              </button>
+
+              {showOcsFactors && (
+                <div className="mt-4 space-y-3">
+                  {ocsFactors.map((f) => (
+                    <div
+                      key={f.factor}
+                      className="rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden"
+                    >
+                      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800/50">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                              f.rawScore >= 0.85
+                                ? "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400"
+                                : f.rawScore >= 0.60
+                                ? "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400"
+                                : "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400"
+                            }`}
+                          >
+                            {Math.round(f.rawScore * 100)}%
+                          </span>
+                          <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                            {f.label}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400">
+                          Weight: {Math.round(f.weight * 100)}%
+                        </span>
+                      </div>
+                      <div className="px-3 py-2">
+                        {f.details.map((d, i) => (
+                          <p
+                            key={i}
+                            className={`text-[11px] leading-relaxed ${
+                              d.startsWith("✓")
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : d.startsWith("⚠")
+                                ? "text-amber-600 dark:text-amber-400"
+                                : d.startsWith("✗")
+                                ? "text-red-600 dark:text-red-400"
+                                : "text-slate-500 dark:text-slate-400"
+                            }`}
+                          >
+                            {d}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left column: Timeline + Events */}
@@ -378,7 +670,6 @@ export default function ShipmentDetailPage() {
                 const isCompleted = ["arrived", "delivered"].includes(event.event_type);
                 return (
                   <div key={event.id} className="relative pb-4 last:pb-0">
-                    {/* Connector line */}
                     {i < events.length - 1 && (
                       <div className="absolute left-[7px] top-5 w-px h-full bg-slate-200 dark:bg-slate-700" />
                     )}
