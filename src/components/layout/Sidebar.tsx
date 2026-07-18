@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   MapPin,
   BrainCircuit,
+  BarChart3,
   Truck,
   Settings,
   Menu,
@@ -26,6 +27,7 @@ const navItems = [
     label: "Intelligence Brief",
     icon: BrainCircuit,
   },
+  { href: "/executive", label: "Executive", icon: BarChart3 },
   { href: "/fleet", label: "Fleet", icon: Truck },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
