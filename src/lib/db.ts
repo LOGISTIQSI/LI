@@ -1,18 +1,10 @@
+import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 
 const DB_PATH = path.join(process.cwd(), "data", "logistiqs.db");
 
-/**
- * Minimal database interface for better-sqlite3.
- * The native module is loaded dynamically at runtime to avoid
- * TypeScript / build-time resolution of the native addon.
- */
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SqliteDatabase = any;
-
-let db: SqliteDatabase | null = null;
+let db: Database.Database | null = null;
 
 function ensureDataDir(): void {
   const dir = path.dirname(DB_PATH);
@@ -21,29 +13,26 @@ function ensureDataDir(): void {
   }
 }
 
-function loadBetterSqlite3(): SqliteDatabase {
-  // Dynamic require hides the native module from TypeScript / bundler analysis.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
-  const BetterSqlite3 = require("better-sqlite3");
-  const Ctor = BetterSqlite3.default || BetterSqlite3;
-  return new Ctor(DB_PATH);
-}
-
 /**
  * Returns the singleton database connection.
- * On first call, initialises via better-sqlite3.
- * Throws if better-sqlite3 is not installed.
+ * Creates the data directory and opens the database on first call.
+ * Enables WAL mode for better concurrent read performance.
+ * Enables foreign key enforcement.
  */
-export function getDb(): SqliteDatabase {
+export function getDb(): Database.Database {
   if (!db) {
     ensureDataDir();
-    db = loadBetterSqlite3();
+    db = new Database(DB_PATH);
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
   }
   return db;
 }
 
+/**
+ * Closes the database connection gracefully.
+ * Useful for testing and clean shutdowns.
+ */
 export function closeDb(): void {
   if (db) {
     db.close();
