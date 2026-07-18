@@ -516,10 +516,103 @@ export async function calculateOperationalConfidence(
     `UPDATE shipments SET operational_confidence_score = ?, confidence_calculated_at = ?, updated_at = ? WHERE id = ?`
   ).run(score, now, now, shipmentId);
 
+  // ── Create alerts for critical operational issues ──
+
+  // O2: Speed compliance — create delay alert if vehicle appears stopped
+  if (o2.rawScore <= 0.3) {
+    const title = "Vehicle stopped — possible breakdown";
+    const desc = o2.details[0] || "Vehicle speed indicates vehicle may be stopped or broken down";
+    upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "critical", title, description: desc });
+  } else if (o2.rawScore <= 0.6) {
+    const title = "Slow progress detected";
+    const desc = o2.details[0] || "Vehicle moving below expected speed — possible congestion or road issue";
+    upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "warning", title, description: desc });
+  } else {
+    // Resolve previous speed-related delay alerts
+    resolveAlertByTitle(db, shipmentId, "Vehicle stopped — possible breakdown");
+    resolveAlertByTitle(db, shipmentId, "Slow progress detected");
+  }
+
+  // O4: Border delay — create alert if high expected wait
+  if (o4.rawScore <= 0.5) {
+    const title = "High border delay risk";
+    const desc = o4.details.filter((d) => d.startsWith("⚠")).join("; ") || "Significant border wait times expected";
+    upsertAlert(db, { shipment_id: shipmentId, alert_type: "border", severity: "warning", title, description: desc });
+  } else {
+    resolveAlertByTitle(db, shipmentId, "High border delay risk");
+  }
+
+  // O3: Falling severely behind schedule
+  if (o3.rawScore <= 0.35) {
+    const title = "Critically behind schedule";
+    const desc = o3.details.filter((d) => d.startsWith("✗")).join("; ") || "Shipment is critically behind schedule and unlikely to meet ETA";
+    upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "critical", title, description: desc });
+  } else if (o3.rawScore <= 0.55) {
+    const title = "Behind schedule";
+    const desc = o3.details.filter((d) => d.startsWith("⚠")).join("; ") || "Shipment is falling behind planned schedule";
+    upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "warning", title, description: desc });
+  } else {
+    resolveAlertByTitle(db, shipmentId, "Critically behind schedule");
+    resolveAlertByTitle(db, shipmentId, "Behind schedule");
+  }
+
   return {
     score,
     threshold,
     factors,
     calculatedAt: now,
   };
+}
+
+// ── Alert helpers ──
+
+function upsertAlert(
+  db: ReturnType<typeof getDb>,
+  params: {
+    shipment_id?: number | null;
+    alert_type: string;
+    severity: string;
+    title: string;
+    description: string;
+  }
+): void {
+  const existing = db
+    .prepare(
+      `SELECT id FROM alerts
+       WHERE alert_type = ? AND title = ? AND is_resolved = 0
+         AND (? IS NULL OR shipment_id = ?)
+       LIMIT 1`
+    )
+    .get(params.alert_type, params.title, params.shipment_id, params.shipment_id) as
+    | { id: number }
+    | undefined;
+
+  if (existing) {
+    db.prepare(
+      `UPDATE alerts SET severity = ?, description = ?, created_at = datetime('now')
+       WHERE id = ?`
+    ).run(params.severity, params.description, existing.id);
+  } else {
+    db.prepare(
+      `INSERT INTO alerts (shipment_id, alert_type, severity, title, description)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(
+      params.shipment_id || null,
+      params.alert_type,
+      params.severity,
+      params.title,
+      params.description
+    );
+  }
+}
+
+function resolveAlertByTitle(
+  db: ReturnType<typeof getDb>,
+  shipmentId: number,
+  title: string
+): void {
+  db.prepare(
+    `UPDATE alerts SET is_resolved = 1, resolved_at = datetime('now')
+     WHERE shipment_id = ? AND title = ? AND is_resolved = 0`
+  ).run(shipmentId, title);
 }

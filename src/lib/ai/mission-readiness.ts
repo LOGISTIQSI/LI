@@ -457,6 +457,41 @@ export async function calculateMissionReadiness(
     `UPDATE shipments SET mission_readiness_score = ?, readiness_calculated_at = ?, updated_at = ? WHERE id = ?`
   ).run(score, now, now, shipmentId);
 
+  // ── Create/update hard gate alert ──
+  if (hardGateTriggered && hardGateReasons.length > 0) {
+    const hardGateTitle = `Shipment cannot depart — hard gate triggered`;
+    const hardGateDesc = `Mission Readiness Score capped at ${score}/100. Reasons: ${hardGateReasons.join("; ")}`;
+
+    // Check for existing unresolved hard gate alert for this shipment
+    const existing = db
+      .prepare(
+        `SELECT id FROM alerts 
+         WHERE shipment_id = ? AND alert_type = 'risk' AND title = ? AND is_resolved = 0 
+         LIMIT 1`
+      )
+      .get(shipmentId, hardGateTitle) as { id: number } | undefined;
+
+    if (existing) {
+      db.prepare(
+        `UPDATE alerts SET severity = 'critical', description = ?, created_at = datetime('now')
+         WHERE id = ?`
+      ).run(hardGateDesc, existing.id);
+    } else {
+      db.prepare(
+        `INSERT INTO alerts (shipment_id, alert_type, severity, title, description)
+         VALUES (?, 'risk', 'critical', ?, ?)`
+      ).run(shipmentId, hardGateTitle, hardGateDesc);
+    }
+  } else {
+    // Resolve old hard gate alert if the gate is no longer triggered
+    db.prepare(
+      `UPDATE alerts SET is_resolved = 1, resolved_at = datetime('now')
+       WHERE shipment_id = ? AND alert_type = 'risk' 
+         AND title = 'Shipment cannot depart — hard gate triggered' 
+         AND is_resolved = 0`
+    ).run(shipmentId);
+  }
+
   return {
     score,
     threshold: classifyThreshold(score),

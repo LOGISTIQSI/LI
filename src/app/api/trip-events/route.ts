@@ -105,6 +105,41 @@ export async function POST(request: NextRequest) {
     // Don't fail the request if OCS calculation fails
   }
 
+  // ── Create alert for delay events ──
+  if (event_type === "delay") {
+    const desc = location_description || `Delay recorded for ${shipment_id}`;
+    const isStopped = speed_kmh != null && speed_kmh < 5;
+    const title = isStopped ? "Vehicle stopped — possible breakdown" : "Delay — slow progress";
+
+    const existingDelayAlert = db
+      .prepare(
+        `SELECT id FROM alerts 
+         WHERE shipment_id = ? AND alert_type = 'delay' AND title = ? AND is_resolved = 0 
+         LIMIT 1`
+      )
+      .get(shipment.id, title) as { id: number } | undefined;
+
+    if (!existingDelayAlert) {
+      db.prepare(
+        `INSERT INTO alerts (shipment_id, alert_type, severity, title, description)
+         VALUES (?, 'delay', ?, ?, ?)`
+      ).run(
+        shipment.id,
+        isStopped ? "critical" : "warning",
+        title,
+        desc
+      );
+    }
+  }
+
+  // ── Auto-resolve delay alerts when shipment resumes normal speed ──
+  if (event_type === "en_route" && speed_kmh != null && speed_kmh > 30) {
+    db.prepare(
+      `UPDATE alerts SET is_resolved = 1, resolved_at = datetime('now')
+       WHERE shipment_id = ? AND alert_type = 'delay' AND is_resolved = 0`
+    ).run(shipment.id);
+  }
+
   const created = db
     .prepare("SELECT * FROM trip_events WHERE id = ?")
     .get(result.lastInsertRowid);

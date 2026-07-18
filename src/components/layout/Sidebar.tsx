@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import ThemeToggle from "@/components/ui/ThemeToggle";
+import NotificationBell from "@/components/ui/NotificationBell";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -135,7 +136,13 @@ export default function Sidebar() {
 
         {/* Bottom area */}
         <div className="p-3 border-t border-slate-200 dark:border-slate-800">
-          <ThemeToggle />
+          {/* Notifications */}
+          <NotificationBell />
+
+          <div className="mt-2">
+            <ThemeToggle />
+          </div>
+
           <div className="mt-3 px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
             <p className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-semibold mb-0.5">
               System Status
