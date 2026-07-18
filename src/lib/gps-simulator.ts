@@ -268,6 +268,14 @@ export function simulateAllActiveShipments(): void {
     "Bikita, Zimbabwe": LOCATIONS["Bikita"],
     "Tete, Mozambique": LOCATIONS["Tete"],
     "Beira, Mozambique": LOCATIONS["Beira"],
+    "Kitwe, Zambia": LOCATIONS["Kitwe"],
+    "Lusaka, Zambia": LOCATIONS["Lusaka"],
+    "Chingola, Zambia": LOCATIONS["Chingola"],
+    "Harare, Zimbabwe": LOCATIONS["Harare"],
+    "Windhoek, Namibia": LOCATIONS["Windhoek"],
+    "Cape Town, South Africa": { lat: -33.9249, lng: 18.4241 },
+    "Francistown, Botswana": LOCATIONS["Francistown"],
+    "Dar es Salaam, Tanzania": { lat: -6.7924, lng: 39.2083 },
   };
 
   for (const ship of activeShipments) {

@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "seed": "tsx src/lib/seed.ts",
+    "demo": "tsx src/lib/seed.ts && tsx src/lib/gps-simulator.ts",
     "simulate-gps": "tsx src/lib/gps-simulator.ts"
   },
   "dependencies": {
