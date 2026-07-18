@@ -12,6 +12,8 @@ import {
   AlertTriangle,
   Check,
   Loader2,
+  Landmark,
+  CreditCard,
 } from "lucide-react";
 
 export default function NewDriverPage() {
@@ -26,6 +28,11 @@ export default function NewDriverPage() {
     medical_certificate_expiry: "",
     passport_number: "",
     passport_expiry: "",
+    bank_account_holder: "",
+    bank_name: "",
+    bank_account_number: "",
+    bank_account_type: "cheque",
+    bank_branch_code: "",
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -236,6 +243,80 @@ export default function NewDriverPage() {
                 value={form.medical_certificate_expiry}
                 onChange={(e) => updateField("medical_certificate_expiry", e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Banking Details */}
+        <section className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <Landmark className="h-5 w-5 text-blue-500" />
+            <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+              Banking Details
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Account Holder Name
+              </label>
+              <input
+                type="text"
+                value={form.bank_account_holder}
+                onChange={(e) => updateField("bank_account_holder", e.target.value)}
+                placeholder="e.g. John Moyo"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Bank Name
+              </label>
+              <input
+                type="text"
+                value={form.bank_name}
+                onChange={(e) => updateField("bank_name", e.target.value)}
+                placeholder="e.g. First National Bank"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Account Number
+              </label>
+              <input
+                type="text"
+                value={form.bank_account_number}
+                onChange={(e) => updateField("bank_account_number", e.target.value)}
+                placeholder="e.g. 63212422769"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Account Type
+              </label>
+              <select
+                value={form.bank_account_type}
+                onChange={(e) => updateField("bank_account_type", e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              >
+                <option value="cheque">Cheque / Current</option>
+                <option value="savings">Savings</option>
+                <option value="transmission">Transmission</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Branch Code
+              </label>
+              <input
+                type="text"
+                value={form.bank_branch_code}
+                onChange={(e) => updateField("bank_branch_code", e.target.value)}
+                placeholder="e.g. 250655"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               />
             </div>
           </div>

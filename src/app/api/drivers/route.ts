@@ -39,6 +39,11 @@ export async function POST(request: NextRequest) {
     medical_certificate_expiry,
     passport_number,
     passport_expiry,
+    bank_account_holder,
+    bank_name,
+    bank_account_number,
+    bank_account_type,
+    bank_branch_code,
   } = body;
 
   // Basic validation
@@ -79,8 +84,9 @@ export async function POST(request: NextRequest) {
       `INSERT INTO drivers (
         user_id, company_id, license_number, license_type, license_expiry,
         pdp_number, pdp_expiry, medical_certificate_expiry,
-        passport_number, passport_expiry, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`
+        passport_number, passport_expiry, status,
+        bank_account_holder, bank_name, bank_account_number, bank_account_type, bank_branch_code
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
@@ -92,7 +98,12 @@ export async function POST(request: NextRequest) {
       pdp_expiry || null,
       medical_certificate_expiry || null,
       passport_number?.trim() || "",
-      passport_expiry || null
+      passport_expiry || null,
+      bank_account_holder?.trim() || "",
+      bank_name?.trim() || "",
+      bank_account_number?.trim() || "",
+      bank_account_type || "cheque",
+      bank_branch_code?.trim() || ""
     );
 
   const newDriver = await db

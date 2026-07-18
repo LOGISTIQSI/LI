@@ -276,4 +276,34 @@ export async function initializeDatabase(db: ReturnType<typeof getDb>): Promise<
   // ═══════════════════════════════════════════════════════════════
   await db.exec(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS is_verified INTEGER NOT NULL DEFAULT 0`);
   await db.exec(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS is_verified INTEGER NOT NULL DEFAULT 0`);
+
+  // Driver banking details
+  await db.exec(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS bank_account_holder TEXT NOT NULL DEFAULT ''`);
+  await db.exec(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS bank_name TEXT NOT NULL DEFAULT ''`);
+  await db.exec(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS bank_account_number TEXT NOT NULL DEFAULT ''`);
+  await db.exec(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS bank_account_type TEXT NOT NULL DEFAULT 'cheque'`);
+  await db.exec(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS bank_branch_code TEXT NOT NULL DEFAULT ''`);
+  await db.exec(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS bank_proof_document TEXT`);
+
+  // ═══════════════════════════════════════════════════════════════
+  // 11. settlements
+  // ═══════════════════════════════════════════════════════════════
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS settlements (
+      id                    SERIAL PRIMARY KEY,
+      shipment_id           INTEGER NOT NULL REFERENCES shipments(id) ON DELETE CASCADE,
+      driver_id             INTEGER NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+      total_payment_received DECIMAL(12,2) NOT NULL DEFAULT 0,
+      flowgrid_commission    DECIMAL(12,2) NOT NULL DEFAULT 0,
+      driver_payable         DECIMAL(12,2) NOT NULL DEFAULT 0,
+      payment_status         TEXT    NOT NULL DEFAULT 'pending'
+                             CHECK (payment_status IN ('pending', 'approved', 'processing', 'paid', 'failed')),
+      created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_settlements_shipment ON settlements(shipment_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_settlements_driver ON settlements(driver_id)`);
+  await db.exec(`CREATE INDEX IF NOT EXISTS idx_settlements_status ON settlements(payment_status)`);
 }

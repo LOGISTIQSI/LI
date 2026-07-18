@@ -208,3 +208,17 @@ export interface IntelligenceBrief {
   compliance_alert_count: number;
   created_at: string;
 }
+
+export type PaymentStatus = "pending" | "approved" | "processing" | "paid" | "failed";
+
+export interface Settlement {
+  id: number;
+  shipment_id: number;
+  driver_id: number;
+  total_payment_received: number;
+  flowgrid_commission: number;
+  driver_payable: number;
+  payment_status: PaymentStatus;
+  created_at: string;
+  updated_at: string;
+}

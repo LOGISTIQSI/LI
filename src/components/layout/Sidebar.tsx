@@ -20,6 +20,7 @@ import {
   UserPlus,
   PlusCircle,
   Shield,
+  Banknote,
 } from "lucide-react";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import NotificationBell from "@/components/ui/NotificationBell";
@@ -41,6 +42,7 @@ const navItems = [
   { href: "/drivers/new", label: "Add Driver", icon: UserPlus },
   { href: "/vehicles/new", label: "Add Vehicle", icon: PlusCircle },
   { href: "/payment", label: "Payment", icon: CreditCard },
+  { href: "/settlements", label: "Settlements", icon: Banknote },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
