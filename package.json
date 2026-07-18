@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "PORT=3000 next dev -p 3000",
     "build": "next build",
-    "start": "next start",
+    "start": "PORT=3000 next start -p 3000",
     "lint": "next lint",
     "seed": "tsx src/lib/seed.ts",
+    "seed:prod": "tsx src/lib/seed-production.ts",
     "demo": "tsx src/lib/seed.ts && tsx src/lib/gps-simulator.ts",
     "simulate-gps": "tsx src/lib/gps-simulator.ts"
   },
