@@ -1,12 +1,10 @@
-import { getDb } from "./db";
+import type Database from "better-sqlite3";
 
 /**
  * Initializes all database tables, indexes, and constraints.
  * Idempotent — safe to call on every application start.
  */
-export function initializeDatabase(): void {
-  const db = getDb();
-
+export function initializeDatabase(db: Database.Database): void {
   db.exec(`
     -- ============================================================
     -- 1. companies

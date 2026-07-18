@@ -1,0 +1,703 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  Package,
+  MapPin,
+  User,
+  Truck,
+  ShieldCheck,
+  Clock,
+  Calendar,
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  Flag,
+  Loader2,
+  ChevronRight,
+  FileText,
+  ExternalLink,
+} from "lucide-react";
+
+interface ShipmentDetail {
+  id: number;
+  shipment_id: string;
+  origin: string;
+  destination: string;
+  origin_country: string;
+  destination_country: string;
+  cargo_type: string;
+  cargo_description: string;
+  cargo_hs_code: string;
+  cargo_value: number;
+  cargo_weight_kg: number;
+  is_dangerous_goods: number;
+  dg_class: string | null;
+  border_crossings: string;
+  status: string;
+  departure_scheduled: string;
+  departure_actual: string | null;
+  eta: string | null;
+  arrival_actual: string | null;
+  mission_readiness_score: number | null;
+  operational_confidence_score: number | null;
+  driver_name: string | null;
+  driver_license: string | null;
+  driver_license_type: string | null;
+  driver_status: string | null;
+  vehicle_registration: string | null;
+  vehicle_type: string | null;
+  vehicle_make: string | null;
+  vehicle_model: string | null;
+  logistics_company_name: string | null;
+  mining_company_name: string | null;
+  created_at: string;
+}
+
+interface TripEvent {
+  id: number;
+  event_type: string;
+  location_description: string;
+  recorded_at: string;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+interface ComplianceDoc {
+  id: number;
+  document_type: string;
+  document_number: string;
+  status: string;
+  expiry_date: string | null;
+  issuing_authority: string;
+}
+
+const EVENT_LABELS: Record<string, string> = {
+  departed: "Departed",
+  en_route: "En Route",
+  border_arrival: "Border Arrival",
+  border_departure: "Border Departure",
+  checkpoint: "Checkpoint",
+  delay: "Delay",
+  arrived: "Arrived",
+  delivered: "Delivered",
+};
+
+const EVENT_ICONS: Record<string, React.ReactNode> = {
+  departed: <Flag className="h-4 w-4 text-blue-500" />,
+  en_route: <Truck className="h-4 w-4 text-slate-400" />,
+  border_arrival: <Flag className="h-4 w-4 text-purple-500" />,
+  border_departure: <Flag className="h-4 w-4 text-emerald-500" />,
+  checkpoint: <MapPin className="h-4 w-4 text-amber-500" />,
+  delay: <AlertTriangle className="h-4 w-4 text-red-500" />,
+  arrived: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
+  delivered: <CheckCircle2 className="h-4 w-4 text-green-600" />,
+};
+
+function statusBadge(status: string) {
+  const map: Record<string, { label: string; classes: string }> = {
+    draft: {
+      label: "Draft",
+      classes:
+        "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700",
+    },
+    ready: {
+      label: "Ready",
+      classes:
+        "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800",
+    },
+    in_transit: {
+      label: "In Transit",
+      classes:
+        "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800",
+    },
+    at_border: {
+      label: "At Border",
+      classes:
+        "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800",
+    },
+    delayed: {
+      label: "Delayed",
+      classes:
+        "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800",
+    },
+    completed: {
+      label: "Completed",
+      classes:
+        "bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800",
+    },
+    cancelled: {
+      label: "Cancelled",
+      classes:
+        "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800",
+    },
+  };
+  const s = map[status] || map.draft;
+  return (
+    <span
+      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${s.classes}`}
+    >
+      {s.label}
+    </span>
+  );
+}
+
+function formatDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso.replace(" ", "T"));
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso.replace(" ", "T"));
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function readinessGauge(score: number | null) {
+  if (score === null)
+    return { color: "text-slate-400", bg: "bg-slate-100 dark:bg-slate-800", label: "N/A" };
+  if (score >= 80) return { color: "text-emerald-500", bg: "bg-emerald-500", label: "High" };
+  if (score >= 50) return { color: "text-amber-500", bg: "bg-amber-500", label: "Medium" };
+  return { color: "text-red-500", bg: "bg-red-500", label: "Low" };
+}
+
+export default function ShipmentDetailPage() {
+  const params = useParams();
+  const [data, setData] = useState<{
+    shipment: ShipmentDetail;
+    events: TripEvent[];
+    documents: ComplianceDoc[];
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(`/api/shipments/${params.id}`);
+        if (!res.ok) throw new Error("Shipment not found");
+        const json = await res.json();
+        setData(json);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load shipment");
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [params.id]);
+
+  if (loading) {
+    return (
+      <div className="max-w-5xl mx-auto flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="max-w-5xl mx-auto py-20 text-center">
+        <AlertTriangle className="h-12 w-12 text-red-400 mx-auto mb-4" />
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
+          {error || "Shipment not found"}
+        </h2>
+        <Link
+          href="/shipments"
+          className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+        >
+          ← Back to shipments
+        </Link>
+      </div>
+    );
+  }
+
+  const { shipment, events, documents } = data;
+  const gauge = readinessGauge(shipment.mission_readiness_score);
+  const borders: string[] = JSON.parse(shipment.border_crossings || "[]");
+  const confidence = shipment.operational_confidence_score;
+  const confidencePct = confidence !== null ? Math.round(confidence * 100) : null;
+
+  // Doc stats
+  const totalDocs = documents.length;
+  const validDocs = documents.filter((d) => d.status === "valid").length;
+  const missingDocs = documents.filter((d) => d.status === "missing").length;
+  const expiringDocs = documents.filter((d) => d.status === "expiring_soon" || d.status === "expired").length;
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-6">
+      {/* Back + header */}
+      <div className="flex items-center gap-4">
+        <Link
+          href="/shipments"
+          className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+        </Link>
+        <div className="flex-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+              {shipment.shipment_id}
+            </h1>
+            {statusBadge(shipment.status)}
+          </div>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+            Created {formatDate(shipment.created_at)}
+          </p>
+        </div>
+      </div>
+
+      {/* Status Bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Mission Readiness Score */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 flex items-center gap-4">
+          <div className="relative h-16 w-16 flex-shrink-0">
+            <svg className="h-16 w-16 -rotate-90" viewBox="0 0 64 64">
+              <circle
+                cx="32"
+                cy="32"
+                r="28"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="6"
+                className="text-slate-100 dark:text-slate-800"
+              />
+              <circle
+                cx="32"
+                cy="32"
+                r="28"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="6"
+                strokeLinecap="round"
+                strokeDasharray={`${((shipment.mission_readiness_score ?? 0) / 100) * 176} 176`}
+                className={gauge.color}
+              />
+            </svg>
+            <span
+              className={`absolute inset-0 flex items-center justify-center text-lg font-bold ${gauge.color}`}
+            >
+              {shipment.mission_readiness_score ?? "—"}
+            </span>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+              Mission Readiness
+            </p>
+            <p className="text-sm font-medium text-slate-900 dark:text-white">
+              {gauge.label}
+            </p>
+          </div>
+        </div>
+
+        {/* Operational Confidence */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 flex items-center gap-4">
+          <div className="h-16 w-16 flex-shrink-0 flex items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-950/30">
+            <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+              {confidencePct !== null ? `${confidencePct}%` : "—"}
+            </span>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+              Operational Confidence
+            </p>
+            <p className="text-sm font-medium text-slate-900 dark:text-white">
+              {confidencePct !== null
+                ? confidencePct >= 85
+                  ? "Strong"
+                  : confidencePct >= 65
+                  ? "Moderate"
+                  : "At Risk"
+                : "Unknown"}
+            </p>
+          </div>
+        </div>
+
+        {/* Trip Progress */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold mb-2">
+            Trip Progress
+          </p>
+          <div className="flex items-center gap-2 text-sm">
+            <MapPin className="h-4 w-4 text-slate-400" />
+            <span className="text-slate-900 dark:text-white font-medium truncate">
+              {shipment.origin}
+            </span>
+            <ChevronRight className="h-4 w-4 text-slate-300" />
+            <MapPin className="h-4 w-4 text-blue-500" />
+            <span className="text-slate-900 dark:text-white font-medium truncate">
+              {shipment.destination}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            {borders.length > 0
+              ? `via ${borders.join(", ")}`
+              : "No border crossings"}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left column: Timeline + Events */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Trip Timeline */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+              <Clock className="h-4 w-4 text-blue-500" />
+              Trip Timeline
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-5">
+              Tracking {events.length} events for this shipment
+            </p>
+
+            <div className="relative pl-8 space-y-0">
+              {events.length === 0 && (
+                <div className="flex items-center gap-3 py-2">
+                  <Circle className="h-4 w-4 text-slate-300 dark:text-slate-600" />
+                  <span className="text-sm text-slate-400 dark:text-slate-500">
+                    No events recorded yet
+                  </span>
+                </div>
+              )}
+              {events.map((event, i) => {
+                const isDelay = event.event_type === "delay";
+                const isCompleted = ["arrived", "delivered"].includes(event.event_type);
+                return (
+                  <div key={event.id} className="relative pb-4 last:pb-0">
+                    {/* Connector line */}
+                    {i < events.length - 1 && (
+                      <div className="absolute left-[7px] top-5 w-px h-full bg-slate-200 dark:bg-slate-700" />
+                    )}
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={`relative z-10 flex items-center justify-center h-4 w-4 rounded-full flex-shrink-0 mt-0.5 ${
+                          isDelay
+                            ? "bg-red-100 dark:bg-red-950/50 text-red-500"
+                            : isCompleted
+                            ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-500"
+                            : "bg-slate-100 dark:bg-slate-800 text-slate-400"
+                        }`}
+                      >
+                        {EVENT_ICONS[event.event_type] || (
+                          <Circle className="h-3 w-3" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`text-sm font-medium ${
+                              isDelay
+                                ? "text-red-700 dark:text-red-400"
+                                : "text-slate-900 dark:text-white"
+                            }`}
+                          >
+                            {EVENT_LABELS[event.event_type] || event.event_type}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            {formatDateTime(event.recorded_at)}
+                          </span>
+                        </div>
+                        {event.location_description && (
+                          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                            {event.location_description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Shipment Info */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+              <Package className="h-4 w-4 text-blue-500" />
+              Shipment Information
+            </h2>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <dt className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                  Shipment ID
+                </dt>
+                <dd className="text-sm font-mono font-semibold text-slate-900 dark:text-white mt-0.5">
+                  {shipment.shipment_id}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                  Status
+                </dt>
+                <dd className="mt-0.5">{statusBadge(shipment.status)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                  Cargo Type
+                </dt>
+                <dd className="text-sm text-slate-900 dark:text-white mt-0.5 font-medium">
+                  {shipment.cargo_type}
+                  {shipment.is_dangerous_goods ? (
+                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold bg-red-100 dark:bg-red-950/30 text-red-600 dark:text-red-400">
+                      DG
+                    </span>
+                  ) : null}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                  HS Code
+                </dt>
+                <dd className="text-sm text-slate-900 dark:text-white mt-0.5">
+                  {shipment.cargo_hs_code || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                  Weight
+                </dt>
+                <dd className="text-sm text-slate-900 dark:text-white mt-0.5 font-medium">
+                  {shipment.cargo_weight_kg.toLocaleString()} kg
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                  Declared Value
+                </dt>
+                <dd className="text-sm text-slate-900 dark:text-white mt-0.5 font-medium">
+                  ${(shipment.cargo_value / 100).toLocaleString()} USD
+                </dd>
+              </div>
+              {shipment.is_dangerous_goods && shipment.dg_class && (
+                <div>
+                  <dt className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                    DG Class
+                  </dt>
+                  <dd className="text-sm text-amber-700 dark:text-amber-400 mt-0.5 font-medium">
+                    {shipment.dg_class}
+                  </dd>
+                </div>
+              )}
+              <div className="sm:col-span-2">
+                <dt className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                  Cargo Description
+                </dt>
+                <dd className="text-sm text-slate-700 dark:text-slate-300 mt-0.5">
+                  {shipment.cargo_description || "—"}
+                </dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                  Border Crossings
+                </dt>
+                <dd className="mt-1 flex flex-wrap gap-1.5">
+                  {borders.length === 0 ? (
+                    <span className="text-sm text-slate-400">None</span>
+                  ) : (
+                    borders.map((b) => (
+                      <span
+                        key={b}
+                        className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300"
+                      >
+                        {b}
+                      </span>
+                    ))
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+
+        {/* Right column: Assignment, Compliance, Schedule */}
+        <div className="space-y-6">
+          {/* Schedule */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-blue-500" />
+              Schedule
+            </h3>
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Scheduled Departure
+                </p>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">
+                  {formatDateTime(shipment.departure_scheduled)}
+                </p>
+              </div>
+              {shipment.departure_actual && (
+                <div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Actual Departure
+                  </p>
+                  <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                    {formatDateTime(shipment.departure_actual)}
+                  </p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">ETA</p>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">
+                  {formatDateTime(shipment.eta)}
+                </p>
+              </div>
+              {shipment.arrival_actual && (
+                <div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Actual Arrival
+                  </p>
+                  <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+                    {formatDateTime(shipment.arrival_actual)}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Assignment */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+              <User className="h-4 w-4 text-blue-500" />
+              Assignment
+            </h3>
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Driver</p>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">
+                  {shipment.driver_name || "Unassigned"}
+                </p>
+                {shipment.driver_license && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    License: {shipment.driver_license} ({shipment.driver_license_type})
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Vehicle</p>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">
+                  {shipment.vehicle_registration || "Unassigned"}
+                </p>
+                {shipment.vehicle_make && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {shipment.vehicle_make} {shipment.vehicle_model} ({shipment.vehicle_type})
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Logistics Company
+                </p>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">
+                  {shipment.logistics_company_name || "None"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Mining Company
+                </p>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">
+                  {shipment.mining_company_name || "—"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Compliance */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-blue-500" />
+              Compliance
+            </h3>
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="text-center p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/20">
+                <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
+                  {validDocs}
+                </p>
+                <p className="text-[10px] text-emerald-700 dark:text-emerald-400 uppercase tracking-wider font-semibold">
+                  Valid
+                </p>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20">
+                <p className="text-xl font-bold text-amber-600 dark:text-amber-400">
+                  {expiringDocs}
+                </p>
+                <p className="text-[10px] text-amber-700 dark:text-amber-400 uppercase tracking-wider font-semibold">
+                  Expiring
+                </p>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-red-50 dark:bg-red-950/20">
+                <p className="text-xl font-bold text-red-600 dark:text-red-400">
+                  {missingDocs}
+                </p>
+                <p className="text-[10px] text-red-700 dark:text-red-400 uppercase tracking-wider font-semibold">
+                  Missing
+                </p>
+              </div>
+            </div>
+            {documents.length > 0 ? (
+              <div className="space-y-2">
+                {documents.slice(0, 5).map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between text-xs py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-0"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-700 dark:text-slate-300 truncate">
+                          {doc.document_type.replace(/_/g, " ")}
+                        </p>
+                        <p className="text-slate-400 truncate">
+                          {doc.document_number}
+                        </p>
+                      </div>
+                    </div>
+                    <span
+                      className={`flex-shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                        doc.status === "valid"
+                          ? "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400"
+                          : doc.status === "expiring_soon"
+                          ? "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400"
+                          : doc.status === "expired"
+                          ? "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                      }`}
+                    >
+                      {doc.status.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-3">
+                No documents on file
+              </p>
+            )}
+            <Link
+              href="/compliance"
+              className="mt-3 inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              View all compliance documents
+              <ExternalLink className="h-3 w-3" />
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

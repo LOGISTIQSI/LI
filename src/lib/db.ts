@@ -1,10 +1,12 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import { initializeDatabase } from "./db-setup";
 
 const DB_PATH = path.join(process.cwd(), "data", "logistiqs.db");
 
 let db: Database.Database | null = null;
+let initialized = false;
 
 function ensureDataDir(): void {
   const dir = path.dirname(DB_PATH);
@@ -18,6 +20,7 @@ function ensureDataDir(): void {
  * Creates the data directory and opens the database on first call.
  * Enables WAL mode for better concurrent read performance.
  * Enables foreign key enforcement.
+ * Runs schema initialization on first access.
  */
 export function getDb(): Database.Database {
   if (!db) {
@@ -25,6 +28,10 @@ export function getDb(): Database.Database {
     db = new Database(DB_PATH);
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
+  }
+  if (!initialized) {
+    initializeDatabase(db);
+    initialized = true;
   }
   return db;
 }
