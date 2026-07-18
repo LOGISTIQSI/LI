@@ -101,11 +101,13 @@ const drivers = [
   ],
 ];
 
+const driverIds: number[] = [];
 for (const d of drivers) {
-  insertDriver.run(...d);
+  const result = insertDriver.run(...d);
+  driverIds.push(Number(result.lastInsertRowid));
 }
 
-console.log(`Inserted 5 drivers`);
+console.log(`Inserted 5 drivers (ids: ${driverIds.join(", ")})`);
 
 // ── 3. Vehicles (belong to transporter company c3) ──
 const insertVehicle = db.prepare(`
@@ -160,11 +162,13 @@ const vehicles = [
   ],
 ];
 
+const vehicleIds: number[] = [];
 for (const v of vehicles) {
-  insertVehicle.run(...v);
+  const result = insertVehicle.run(...v);
+  vehicleIds.push(Number(result.lastInsertRowid));
 }
 
-console.log(`Inserted 5 vehicles`);
+console.log(`Inserted 5 vehicles (ids: ${vehicleIds.join(", ")})`);
 
 // ── 4. Sample shipments ──
 const insertShipment = db.prepare(`
@@ -188,7 +192,7 @@ function fmtDate(d: Date): string {
 
 // Shipment 1: In transit — Copper Cathode from Solwezi, ZM to Durban, ZA
 const s1 = insertShipment.run(
-  `SHIP-${yyyy}-00001`, c1.lastInsertRowid, c2.lastInsertRowid, 1, 1,
+  `SHIP-${yyyy}-00001`, c1.lastInsertRowid, c2.lastInsertRowid, driverIds[0], vehicleIds[0],
   "Solwezi, Zambia", "Durban, South Africa",
   "ZM", "ZA",
   "Copper Cathode", "Grade A copper cathode sheets, 99.99% purity, packed on pallets",
@@ -206,7 +210,7 @@ const s1 = insertShipment.run(
 
 // Shipment 2: Ready — Mining equipment from Johannesburg to Lubumbashi
 const s2 = insertShipment.run(
-  `SHIP-${yyyy}-00002`, c1.lastInsertRowid, c2.lastInsertRowid, 1, 4,
+  `SHIP-${yyyy}-00002`, c1.lastInsertRowid, c2.lastInsertRowid, driverIds[0], vehicleIds[3],
   "Johannesburg, South Africa", "Lubumbashi, DRC",
   "ZA", "CD",
   "Mining Equipment", "CAT 777E dump truck components — engine, transmission, axles",
@@ -224,7 +228,7 @@ const s2 = insertShipment.run(
 
 // Shipment 3: Delayed — Cobalt Hydroxide from Kolwezi to Walvis Bay
 const s3 = insertShipment.run(
-  `SHIP-${yyyy}-00003`, c1.lastInsertRowid, c2.lastInsertRowid, 2, 2,
+  `SHIP-${yyyy}-00003`, c1.lastInsertRowid, c2.lastInsertRowid, driverIds[1], vehicleIds[1],
   "Kolwezi, DRC", "Walvis Bay, Namibia",
   "CD", "NA",
   "Cobalt Hydroxide", "Bulk cobalt hydroxide filter cake in 2-ton bulk bags",
@@ -242,7 +246,7 @@ const s3 = insertShipment.run(
 
 // Shipment 4: Completed — Lithium ore from Bikita, ZW to Durban
 const s4 = insertShipment.run(
-  `SHIP-${yyyy}-00004`, c1.lastInsertRowid, c2.lastInsertRowid, 2, 1, // vehicle 1 = ZA-GP-NRT882
+  `SHIP-${yyyy}-00004`, c1.lastInsertRowid, c2.lastInsertRowid, driverIds[1], vehicleIds[0], // vehicle 0 = ZA-GP-NRT882
   "Bikita, Zimbabwe", "Durban, South Africa",
   "ZW", "ZA",
   "Lithium Ore", "Spodumene concentrate 6% Li2O, bulk in containers",
@@ -334,22 +338,22 @@ const insertDoc = db.prepare(`
 
 const docs = [
   // For shipment s1
-  [s1.lastInsertRowid, 1, 1, "driver_license", "EC-8874521", "/docs/EC-8874521.pdf", "RSA Dept of Transport", "2022-08-15", "2027-08-15", "valid", 1, "Verified against RSA eNaTIS"],
-  [s1.lastInsertRowid, 1, 1, "pdp", "PDP-44829", "/docs/PDP-44829.pdf", "RSA Dept of Transport", "2025-06-30", "2027-06-30", "valid", 1, null],
-  [s1.lastInsertRowid, null, 1, "vehicle_registration", "ZA-GP-NRT882", "/docs/ZA-GP-NRT882-reg.pdf", "RSA eNaTIS", "2026-05-10", "2027-05-10", "valid", 1, null],
-  [s1.lastInsertRowid, null, 1, "cross_border_permit", "CBP-ZA-2024-88330", "/docs/CBP-ZA-2024-88330.pdf", "SADC Cross Border Transport Agency", "2026-05-10", "2027-05-10", "valid", 1, null],
+  [s1.lastInsertRowid, driverIds[0], vehicleIds[0], "driver_license", "EC-8874521", "/docs/EC-8874521.pdf", "RSA Dept of Transport", "2022-08-15", "2027-08-15", "valid", 1, "Verified against RSA eNaTIS"],
+  [s1.lastInsertRowid, driverIds[0], vehicleIds[0], "pdp", "PDP-44829", "/docs/PDP-44829.pdf", "RSA Dept of Transport", "2025-06-30", "2027-06-30", "valid", 1, null],
+  [s1.lastInsertRowid, null, vehicleIds[0], "vehicle_registration", "ZA-GP-NRT882", "/docs/ZA-GP-NRT882-reg.pdf", "RSA eNaTIS", "2026-05-10", "2027-05-10", "valid", 1, null],
+  [s1.lastInsertRowid, null, vehicleIds[0], "cross_border_permit", "CBP-ZA-2024-88330", "/docs/CBP-ZA-2024-88330.pdf", "SADC Cross Border Transport Agency", "2026-05-10", "2027-05-10", "valid", 1, null],
   // For shipment s3 (delayed — some docs have issues)
-  [s3.lastInsertRowid, 2, 2, "driver_license", "ZW-CLASS2-55912", "/docs/ZW-CLASS2-55912.pdf", "Zimbabwe CVR", "2023-01-10", "2028-01-10", "valid", 1, null],
-  [s3.lastInsertRowid, null, 2, "vehicle_registration", "ZM-ACB-4421", "/docs/ZM-ACB-4421.pdf", "Zambia RTSA", "2025-11-25", "2027-11-25", "valid", 1, null],
-  [s3.lastInsertRowid, null, 2, "insurance", "INS-ZM-2025-3344", "/docs/INS-ZM-2025-3344.pdf", "Madison Insurance Zambia", "2025-11-25", "2027-11-25", "valid", 1, null],
-  [s3.lastInsertRowid, null, 2, "dg_permit", "DG-ZM-2025-1092", null, "Zambia Environmental Management Agency", "2025-11-25", "2027-11-25", "under_review", 0, "DG declaration being re-verified at Kasumbalesa"],
+  [s3.lastInsertRowid, driverIds[1], vehicleIds[1], "driver_license", "ZW-CLASS2-55912", "/docs/ZW-CLASS2-55912.pdf", "Zimbabwe CVR", "2023-01-10", "2028-01-10", "valid", 1, null],
+  [s3.lastInsertRowid, null, vehicleIds[1], "vehicle_registration", "ZM-ACB-4421", "/docs/ZM-ACB-4421.pdf", "Zambia RTSA", "2025-11-25", "2027-11-25", "valid", 1, null],
+  [s3.lastInsertRowid, null, vehicleIds[1], "insurance", "INS-ZM-2025-3344", "/docs/INS-ZM-2025-3344.pdf", "Madison Insurance Zambia", "2025-11-25", "2027-11-25", "valid", 1, null],
+  [s3.lastInsertRowid, null, vehicleIds[1], "dg_permit", "DG-ZM-2025-1092", null, "Zambia Environmental Management Agency", "2025-11-25", "2027-11-25", "under_review", 0, "DG declaration being re-verified at Kasumbalesa"],
   // For shipment s4 (completed)
-  [s4.lastInsertRowid, 2, 1, "driver_license", "ZW-CLASS2-55912", "/docs/ZW-CLASS2-55912.pdf", "Zimbabwe CVR", "2023-01-10", "2028-01-10", "valid", 1, null],
-  [s4.lastInsertRowid, null, 1, "vehicle_registration", "ZA-GP-NRT882", "/docs/ZA-GP-NRT882-reg.pdf", "RSA eNaTIS", "2026-05-10", "2027-05-10", "valid", 1, null],
-  // For vehicle 4 (ZA-WP-MEQ554 — expiring soon)
-  [null, null, 4, "vehicle_registration", "ZA-WP-MEQ554", "/docs/ZA-WP-MEQ554-reg.pdf", "RSA eNaTIS", "2025-12-01", "2026-12-01", "expiring_soon", 1, "Registration expires within 5 months. Renewal recommended."],
+  [s4.lastInsertRowid, driverIds[1], vehicleIds[0], "driver_license", "ZW-CLASS2-55912", "/docs/ZW-CLASS2-55912.pdf", "Zimbabwe CVR", "2023-01-10", "2028-01-10", "valid", 1, null],
+  [s4.lastInsertRowid, null, vehicleIds[0], "vehicle_registration", "ZA-GP-NRT882", "/docs/ZA-GP-NRT882-reg.pdf", "RSA eNaTIS", "2026-05-10", "2027-05-10", "valid", 1, null],
+  // For vehicle 3 (ZA-WP-MEQ554 — expiring soon)
+  [null, null, vehicleIds[3], "vehicle_registration", "ZA-WP-MEQ554", "/docs/ZA-WP-MEQ554-reg.pdf", "RSA eNaTIS", "2025-12-01", "2026-12-01", "expiring_soon", 1, "Registration expires within 5 months. Renewal recommended."],
   // Driver 4 (off_duty — expired medical)
-  [null, 4, null, "medical_certificate", "MED-NA-P1928374N", "/docs/MED-NA-P1928374N.pdf", "Namibia Ministry of Health", "2025-07-18", "2026-07-18", "expired", 1, "Medical certificate expired. Driver suspended."],
+  [null, driverIds[3], null, "medical_certificate", "MED-NA-P1928374N", "/docs/MED-NA-P1928374N.pdf", "Namibia Ministry of Health", "2025-07-18", "2026-07-18", "expired", 1, "Medical certificate expired. Driver suspended."],
 ];
 
 for (const d of docs) {
