@@ -190,7 +190,18 @@ export async function initializeDatabase(db: ReturnType<typeof getDb>): Promise<
     );
 
     -- ============================================================
-    -- 9. intelligence_briefs
+    -- 9. sessions
+    -- ============================================================
+    CREATE TABLE IF NOT EXISTS sessions (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token      TEXT    NOT NULL UNIQUE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- ============================================================
+    -- 10. intelligence_briefs
     -- ============================================================
     CREATE TABLE IF NOT EXISTS intelligence_briefs (
       id                     SERIAL PRIMARY KEY,
@@ -245,6 +256,10 @@ export async function initializeDatabase(db: ReturnType<typeof getDb>): Promise<
     `CREATE INDEX IF NOT EXISTS idx_vehicles_status ON vehicles(status)`,
     `CREATE INDEX IF NOT EXISTS idx_vehicles_company ON vehicles(company_id)`,
     `CREATE INDEX IF NOT EXISTS idx_vehicles_compound ON vehicles(status, company_id)`,
+
+    // sessions
+    `CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)`,
+    `CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`,
 
     // intelligence_briefs
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_briefs_company_date ON intelligence_briefs(company_id, brief_date)`,

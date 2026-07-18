@@ -16,6 +16,7 @@ import {
   ChevronRight,
   MapPin,
 } from "lucide-react";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 // ── Types ──
 
@@ -162,6 +163,7 @@ function StatCard({ label, value, change, changeUp, icon, color }: StatCardProps
 // ── Main Page ──
 
 export default function DashboardPage() {
+  const { user } = useAuth();
   const [greeting] = useState(() => getGreeting());
   const [now] = useState(() => new Date());
   const [lastUpdated, setLastUpdated] = useState(formatTime(new Date()));
@@ -214,7 +216,7 @@ export default function DashboardPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-            {greeting}, Kalahari Copper Mining
+            {greeting}, {user?.fullName || "there"}
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             {formatDate(now)}

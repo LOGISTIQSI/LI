@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { ThemeProvider } from "@/lib/theme";
+import { AuthProvider } from "@/components/auth/AuthProvider";
 import Sidebar from "@/components/layout/Sidebar";
 
 const geistSans = localFont({
@@ -49,12 +50,14 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100`}
       >
         <ThemeProvider>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <main className="flex-1 lg:ml-64 p-4 sm:p-6 lg:p-8 pt-16 lg:pt-8">
-              {children}
-            </main>
-          </div>
+          <AuthProvider>
+            <div className="flex min-h-screen">
+              <Sidebar />
+              <main className="flex-1 lg:ml-64 p-4 sm:p-6 lg:p-8 pt-16 lg:pt-8">
+                {children}
+              </main>
+            </div>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

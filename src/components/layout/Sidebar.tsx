@@ -15,9 +15,12 @@ import {
   Settings,
   Menu,
   X,
+  LogOut,
+  User,
 } from "lucide-react";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import NotificationBell from "@/components/ui/NotificationBell";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -38,6 +41,7 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { user, logout } = useAuth();
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -106,6 +110,25 @@ export default function Sidebar() {
           </p>
         </div>
 
+        {/* User info */}
+        {user && (
+          <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center flex-shrink-0">
+                <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                  {user.fullName}
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                  {user.role}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Navigation */}
         <nav className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto">
           {navItems.map((item) => {
@@ -144,6 +167,15 @@ export default function Sidebar() {
           <div className="mt-2">
             <ThemeToggle />
           </div>
+
+          {/* Logout button */}
+          <button
+            onClick={logout}
+            className="mt-2 w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>Sign out</span>
+          </button>
 
           <div className="mt-3 px-3 py-2 bg-slate-50 dark:bg-slate-800 rounded-lg">
             <p className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-semibold mb-0.5">
