@@ -17,6 +17,8 @@ import {
   X,
   LogOut,
   User,
+  UserPlus,
+  PlusCircle,
 } from "lucide-react";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import NotificationBell from "@/components/ui/NotificationBell";
@@ -34,6 +36,8 @@ const navItems = [
   },
   { href: "/executive", label: "Executive", icon: BarChart3 },
   { href: "/fleet", label: "Fleet", icon: Truck },
+  { href: "/drivers/new", label: "Add Driver", icon: UserPlus },
+  { href: "/vehicles/new", label: "Add Vehicle", icon: PlusCircle },
   { href: "/payment", label: "Payment", icon: CreditCard },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

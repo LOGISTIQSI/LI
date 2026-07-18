@@ -25,3 +25,85 @@ export async function GET(request: NextRequest) {
   const drivers = await db.prepare(query).all(...params);
   return NextResponse.json(drivers);
 }
+
+export async function POST(request: NextRequest) {
+  const db = getDb();
+  const body = await request.json();
+
+  const {
+    full_name,
+    email,
+    license_number,
+    license_expiry,
+    pdp_expiry,
+    medical_certificate_expiry,
+    passport_number,
+    passport_expiry,
+  } = body;
+
+  // Basic validation
+  if (!full_name || !license_number || !license_expiry) {
+    return NextResponse.json(
+      { error: "Full name, license number, and license expiry are required" },
+      { status: 400 }
+    );
+  }
+
+  // Optionally create a user account if email is provided
+  let userId: number | null = null;
+  if (email && email.trim()) {
+    const existingUser = await db
+      .prepare("SELECT id FROM users WHERE email = ?")
+      .get(email.trim().toLowerCase());
+    if (existingUser) {
+      userId = existingUser.id as number;
+    } else {
+      // Create a basic user account for the driver
+      const userResult = await db
+        .prepare(
+          `INSERT INTO users (company_id, email, password_hash, full_name, role, is_active)
+           VALUES (?, ?, ?, ?, 'driver', 1)`
+        )
+        .run(
+          1,
+          email.trim().toLowerCase(),
+          "$2b$10$placeholder_hash_will_be_reset",
+          full_name.trim()
+        );
+      userId = userResult.lastInsertRowid;
+    }
+  }
+
+  const result = await db
+    .prepare(
+      `INSERT INTO drivers (
+        user_id, company_id, license_number, license_type, license_expiry,
+        pdp_number, pdp_expiry, medical_certificate_expiry,
+        passport_number, passport_expiry, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`
+    )
+    .run(
+      userId,
+      1,
+      license_number.trim(),
+      "Heavy Vehicle",
+      license_expiry,
+      body.pdp_number || "",
+      pdp_expiry || null,
+      medical_certificate_expiry || null,
+      passport_number?.trim() || "",
+      passport_expiry || null
+    );
+
+  const newDriver = await db
+    .prepare(
+      `SELECT d.*, u.full_name, c.name AS company_name
+       FROM drivers d
+       LEFT JOIN users u ON d.user_id = u.id
+       LEFT JOIN companies c ON d.company_id = c.id
+       WHERE d.id = ?`
+    )
+    .get(result.lastInsertRowid);
+
+  return NextResponse.json(newDriver, { status: 201 });
+}
