@@ -1,0 +1,178 @@
+@import "tailwindcss";
+
+/* =============================================
+   CSS Custom Properties — Light Mode (:root)
+   ============================================= */
+:root {
+  --bg-primary: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-raised: #ffffff;
+  --bg-sidebar: #ffffff;
+  --bg-muted: #f1f5f9;
+  --border-default: #e2e8f0;
+  --border-subtle: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-tertiary: #94a3b8;
+  --text-inverse: #ffffff;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-subtle: #eff6ff;
+  --accent: #0d9488;
+  --accent-hover: #0f766e;
+  --accent-subtle: #f0fdfa;
+  --success: #059669;
+  --success-subtle: #ecfdf5;
+  --warning: #d97706;
+  --warning-subtle: #fffbeb;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-subtle: #fef2f2;
+  --info: #0891b2;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+}
+
+/* =============================================
+   CSS Custom Properties — Dark Mode (.dark)
+   ============================================= */
+.dark {
+  --bg-primary: #020617;
+  --bg-surface: #0f172a;
+  --bg-surface-raised: #1e293b;
+  --bg-sidebar: #0b1120;
+  --bg-muted: #1e293b;
+  --border-default: #1e293b;
+  --border-subtle: #334155;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --text-inverse: #0f172a;
+  --primary-subtle: #1e3a5f;
+  --accent-subtle: #134e4a;
+  --success-subtle: #064e3b;
+  --warning-subtle: #451a03;
+  --danger-subtle: #450a0a;
+}
+
+/* =============================================
+   Tailwind v4 @theme — semantic token mapping
+   ============================================= */
+@theme {
+  --color-brand-primary: var(--primary);
+  --color-brand-primary-hover: var(--primary-hover);
+  --color-brand-accent: var(--accent);
+  --color-brand-accent-hover: var(--accent-hover);
+  --color-brand-success: var(--success);
+  --color-brand-warning: var(--warning);
+  --color-brand-danger: var(--danger);
+
+  --color-surface-primary: var(--bg-primary);
+  --color-surface-card: var(--bg-surface);
+  --color-surface-raised: var(--bg-surface-raised);
+  --color-surface-muted: var(--bg-muted);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+
+  --color-border-default: var(--border-default);
+  --color-border-subtle: var(--border-subtle);
+}
+
+/* =============================================
+   Base Layer
+   ============================================= */
+@layer base {
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+  }
+
+  html.light {
+    color-scheme: light;
+  }
+
+  body {
+    font-family: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* =============================================
+   Component Layer
+   ============================================= */
+@layer components {
+  /* Card */
+  .card {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+  }
+
+  /* Button Primary */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    border-radius: var(--radius-md);
+    background-color: var(--primary);
+    color: #ffffff;
+    transition: background-color 150ms ease, transform 100ms ease;
+    cursor: pointer;
+    border: none;
+  }
+  .btn-primary:hover {
+    background-color: var(--primary-hover);
+  }
+  .btn-primary:active {
+    transform: scale(0.98);
+  }
+  .btn-primary:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  /* Button Ghost */
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-weight: 500;
+    border-radius: var(--radius-md);
+    background-color: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+    transition: background-color 150ms ease, color 150ms ease;
+    cursor: pointer;
+  }
+  .btn-ghost:hover {
+    background-color: var(--bg-muted);
+    color: var(--text-primary);
+  }
+
+  /* Overline */
+  .overline {
+    font-size: 0.625rem;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  /* Section anchor offset for smooth scroll with fixed navbar */
+  section[id] {
+    scroll-margin-top: 5rem;
+  }
+}
