@@ -61,6 +61,7 @@ export async function initializeDatabase(db: ReturnType<typeof getDb>): Promise<
       passport_expiry           DATE    NOT NULL,
       yellow_fever_cert         INTEGER NOT NULL DEFAULT 0,
       hiv_cert_expiry           DATE,
+      is_verified               INTEGER NOT NULL DEFAULT 0,
       status                    TEXT    NOT NULL DEFAULT 'available'
                                 CHECK (status IN ('available', 'on_trip', 'off_duty', 'suspended')),
       created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -88,6 +89,7 @@ export async function initializeDatabase(db: ReturnType<typeof getDb>): Promise<
       cross_border_permit_number   TEXT    NOT NULL,
       cross_border_permit_expiry   DATE    NOT NULL,
       is_dg_capable                INTEGER NOT NULL DEFAULT 0,
+      is_verified                  INTEGER NOT NULL DEFAULT 0,
       status                       TEXT    NOT NULL DEFAULT 'available'
                                    CHECK (status IN ('available', 'on_trip', 'maintenance', 'retired')),
       created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -268,4 +270,10 @@ export async function initializeDatabase(db: ReturnType<typeof getDb>): Promise<
   for (const idxSql of indexes) {
     await db.exec(idxSql);
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Migrations: add columns that may not exist on older tables
+  // ═══════════════════════════════════════════════════════════════
+  await db.exec(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS is_verified INTEGER NOT NULL DEFAULT 0`);
+  await db.exec(`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS is_verified INTEGER NOT NULL DEFAULT 0`);
 }

@@ -19,6 +19,7 @@ import {
   User,
   UserPlus,
   PlusCircle,
+  Shield,
 } from "lucide-react";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import NotificationBell from "@/components/ui/NotificationBell";
@@ -28,6 +29,7 @@ const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/shipments", label: "Shipments", icon: Package },
   { href: "/compliance", label: "Compliance", icon: ShieldCheck },
+  { href: "/verification", label: "Verification", icon: Shield },
   { href: "/tracking", label: "Tracking", icon: MapPin },
   {
     href: "/intelligence-brief",
