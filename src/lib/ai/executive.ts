@@ -95,7 +95,6 @@ function daysUntil(dateStr: string | null): number {
   return Math.floor((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-// Border wait time estimates (minutes)
 const BORDER_WAIT: Record<string, number> = {
   "Beitbridge": 252,
   "Kazungula": 108,
@@ -141,11 +140,10 @@ function generateActionsFromAlert(alert: Record<string, unknown>): string {
 // Step 1: GATHER
 // ═══════════════════════════════════════════════════════════════════
 
-function gatherData(companyId: number) {
+async function gatherData(companyId: number) {
   const db = getDb();
 
-  // Active shipments (not completed, not cancelled)
-  const activeShipments = db
+  const activeShipments = await db
     .prepare(
       `SELECT s.*, 
         d.license_number AS driver_license,
@@ -157,26 +155,24 @@ function gatherData(companyId: number) {
        LEFT JOIN users u ON d.user_id = u.id
        LEFT JOIN vehicles v ON s.vehicle_id = v.id
        LEFT JOIN companies mc ON s.company_id = mc.id
-       WHERE s.company_id = ? AND s.status NOT IN ('completed', 'cancelled')
+       WHERE s.company_id = $1 AND s.status NOT IN ('completed', 'cancelled')
        ORDER BY s.departure_scheduled ASC`
     )
     .all(companyId) as Record<string, unknown>[];
 
-  // Unresolved alerts
-  const unresolvedAlerts = db
+  const unresolvedAlerts = await db
     .prepare(
       `SELECT a.*, s.shipment_id AS shipment_ref
        FROM alerts a
        LEFT JOIN shipments s ON a.shipment_id = s.id
-       WHERE a.is_resolved = 0 AND s.company_id = ?
+       WHERE a.is_resolved = 0 AND s.company_id = $1
        ORDER BY 
          CASE a.severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
          a.created_at DESC`
     )
     .all(companyId) as Record<string, unknown>[];
 
-  // Compliance documents with upcoming expiry
-  const expiringDocs = db
+  const expiringDocs = await db
     .prepare(
       `SELECT cd.*, 
         COALESCE(s.shipment_id, 'N/A') AS shipment_ref,
@@ -187,46 +183,43 @@ function gatherData(companyId: number) {
        LEFT JOIN vehicles v ON cd.vehicle_id = v.id
        WHERE cd.expiry_date IS NOT NULL 
          AND cd.status IN ('valid', 'expiring_soon', 'under_review')
-         AND date(cd.expiry_date) <= date('now', '+30 days')
-         AND date(cd.expiry_date) >= date('now', '-1 day')
-         AND (s.company_id = ? OR d.company_id = ? OR v.company_id = ?)
+         AND cd.expiry_date <= CURRENT_DATE + INTERVAL '30 days'
+         AND cd.expiry_date >= CURRENT_DATE - INTERVAL '1 day'
+         AND (s.company_id = $1 OR d.company_id = $1 OR v.company_id = $1)
        ORDER BY cd.expiry_date ASC`
     )
-    .all(companyId, companyId, companyId) as Record<string, unknown>[];
+    .all(companyId) as Record<string, unknown>[];
 
-  // Yesterday's outcomes
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().slice(0, 10);
-  const todayDateStr = todayStr();
 
-  const completedYesterday = db
+  const completedYesterday = await db
     .prepare(
       `SELECT * FROM shipments
-       WHERE company_id = ?
+       WHERE company_id = $1
          AND status = 'completed'
-         AND date(arrival_actual) = ?`
+         AND arrival_actual::date = $2::date`
     )
     .all(companyId, yesterdayStr) as Record<string, unknown>[];
 
-  const cancelledYesterday = db
+  const cancelledYesterday = await db
     .prepare(
       `SELECT * FROM shipments
-       WHERE company_id = ?
+       WHERE company_id = $1
          AND status = 'cancelled'
-         AND date(updated_at) = ?`
+         AND updated_at::date = $2::date`
     )
     .all(companyId, yesterdayStr) as Record<string, unknown>[];
 
-  // Border wait times from recent trip events
-  const borderEvents = db
+  const borderEvents = await db
     .prepare(
       `SELECT te.*, s.shipment_id, s.border_crossings
        FROM trip_events te
        JOIN shipments s ON te.shipment_id = s.id
-       WHERE s.company_id = ?
+       WHERE s.company_id = $1
          AND te.event_type IN ('border_arrival', 'border_departure')
-         AND date(te.recorded_at) >= date('now', '-7 days')
+         AND te.recorded_at::date >= CURRENT_DATE - INTERVAL '7 days'
        ORDER BY te.shipment_id, te.recorded_at ASC`
     )
     .all(companyId) as Record<string, unknown>[];
@@ -238,18 +231,14 @@ function gatherData(companyId: number) {
     completedYesterday,
     cancelledYesterday,
     borderEvents,
-    yesterdayStr,
-    todayDateStr,
   };
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Step 2: SCORE — Refresh MRS/OCS for relevant shipments
+// Step 2: SCORE
 // ═══════════════════════════════════════════════════════════════════
 
 async function scoreShipments(shipments: Record<string, unknown>[]) {
-  // Refresh MRS for pending/ready/draft shipments
-  // Refresh OCS for in_transit shipments
   const scored: Record<string, unknown>[] = [];
 
   for (const s of shipments) {
@@ -265,7 +254,6 @@ async function scoreShipments(shipments: Record<string, unknown>[]) {
         scored.push({ ...s, mrs: mrsResult.score, mrsThreshold: mrsResult.threshold });
       }
     } catch {
-      // If scoring fails, use existing values
       scored.push({
         ...s,
         mrs: s.mission_readiness_score,
@@ -280,7 +268,7 @@ async function scoreShipments(shipments: Record<string, unknown>[]) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Step 3: RANK — Priority algorithm
+// Step 3: RANK
 // ═══════════════════════════════════════════════════════════════════
 
 interface RankedDecision {
@@ -301,14 +289,13 @@ function rankDecisions(
 ): RankedDecision[] {
   const decisions: RankedDecision[] = [];
 
-  // 1. Critical alerts become decisions
   for (const alert of alerts) {
     if (alert.severity !== "critical") continue;
 
     const severity = alert.severity as "critical";
-    const sevWeight = severity === "critical" ? 1.0 : severity === "warning" ? 0.6 : 0.3;
-    const urgencyWeight = 0.9; // Critical alerts are urgent
-    const finExposure = 0.7; // Default moderate financial exposure
+    const sevWeight = severity === "critical" ? 1.0 : 0.3;
+    const urgencyWeight = 0.9;
+    const finExposure = 0.7;
 
     const priorityScore =
       sevWeight * 0.4 + finExposure * 0.35 + urgencyWeight * 0.25;
@@ -328,7 +315,6 @@ function rankDecisions(
     });
   }
 
-  // 2. Low OCS shipments become decisions
   for (const s of scoredShipments) {
     const ocs = (s as Record<string, unknown>).ocs as number | undefined;
     if (ocs !== undefined && ocs < 0.6) {
@@ -362,7 +348,6 @@ function rankDecisions(
     }
   }
 
-  // 3. Low MRS shipments become decisions
   for (const s of scoredShipments) {
     const mrs = (s as Record<string, unknown>).mrs as number | undefined;
     if (mrs !== undefined && mrs < 50) {
@@ -392,7 +377,6 @@ function rankDecisions(
     }
   }
 
-  // 4. Expiring docs become decisions
   for (const doc of expiringDocs) {
     const daysLeft = daysUntil(doc.expiry_date as string);
     if (daysLeft <= 7 && daysLeft > 0) {
@@ -412,7 +396,6 @@ function rankDecisions(
     }
   }
 
-  // Sort by priority score descending, take top 8
   decisions.sort((a, b) => b.priorityScore - a.priorityScore);
   return decisions.slice(0, 8).map((d, i) => ({ ...d, priority: i + 1 }));
 }
@@ -432,7 +415,6 @@ function composeBrief(
   cancelledYesterday: Record<string, unknown>[],
   borderEvents: Record<string, unknown>[]
 ): IntelligenceBrief {
-  // ── Critical Alerts ──
   const criticalAlerts: CriticalAlertItem[] = alerts
     .filter((a) => a.severity === "critical")
     .map((a) => ({
@@ -445,10 +427,8 @@ function composeBrief(
       deadline: "Immediate",
     }));
 
-  // ── Prioritised Decisions ──
   const prioritisedDecisions = rankDecisions(alerts, scoredShipments, expiringDocs);
 
-  // ── Compliance Watchlist ──
   const complianceWatchlist: ComplianceWatchItem[] = expiringDocs.map((doc) => {
     const daysLeft = daysUntil(doc.expiry_date as string);
     let entityType: "driver" | "vehicle" | "shipment" = "shipment";
@@ -470,8 +450,6 @@ function composeBrief(
     };
   });
 
-  // ── Border Conditions ──
-  // Aggregate unique borders from active shipments
   const borderMap = new Map<string, { shipments: string[]; waitFrom: number }>();
   for (const s of scoredShipments) {
     try {
@@ -482,19 +460,17 @@ function composeBrief(
         }
         borderMap.get(b)!.shipments.push(s.shipment_id as string);
       }
-    } catch { /* skip parse errors */ }
+    } catch { /* skip */ }
   }
 
-  // Compute actual wait times from border events
   const borderWaitMap = new Map<string, number>();
-  const borderEntryMap = new Map<string, string>(); // shipmentId_border -> arrival time
+  const borderEntryMap = new Map<string, string>();
   for (const ev of borderEvents) {
     const borders = JSON.parse((ev.border_crossings as string) || "[]") as string[];
     const shipmentId = ev.shipment_id as string;
     const eventType = ev.event_type as string;
     const recordedAt = ev.recorded_at as string;
 
-    // Match border name from shipment's borders to this event
     for (const border of borders) {
       const key = `${shipmentId}_${border}`;
       if (eventType === "border_arrival") {
@@ -505,7 +481,6 @@ function composeBrief(
           const waitMs = new Date(recordedAt).getTime() - new Date(arrivalTime).getTime();
           const waitMin = Math.round(waitMs / 60000);
           if (waitMin > 0 && waitMin < 1440) {
-            // Use average if we have multiple crossings
             const existing = borderWaitMap.get(border);
             if (existing) {
               borderWaitMap.set(border, Math.round((existing + waitMin) / 2));
@@ -522,7 +497,6 @@ function composeBrief(
   for (const [border, info] of borderMap) {
     const actualWait = borderWaitMap.get(border) || BORDER_WAIT[border] || 120;
     const waitStatus = getBorderStatus(actualWait);
-    // Randomize trend slightly for realism
     const trends: Array<"up" | "down" | "stable"> = ["up", "down", "stable"];
     const trend = actualWait > 180 ? "up" : actualWait < 60 ? "down" : trends[border.length % 3];
 
@@ -536,7 +510,6 @@ function composeBrief(
     });
   }
 
-  // ── Fleet Overview ──
   const fleetOverview: FleetOverview = {
     totalActive: scoredShipments.length,
     inTransit: scoredShipments.filter((s) => s.status === "in_transit").length,
@@ -551,7 +524,6 @@ function composeBrief(
     ).length,
   };
 
-  // ── Yesterday's Outcomes ──
   const totalYesterday = completedYesterday.length + cancelledYesterday.length;
   const onTimeCount = completedYesterday.filter(
     (s) => s.arrival_actual && s.eta && s.arrival_actual <= s.eta
@@ -560,7 +532,6 @@ function composeBrief(
     ? Math.round((onTimeCount / completedYesterday.length) * 100)
     : 100;
 
-  // Calculate average border wait from yesterday's completed border events
   let avgBorderWait = 0;
   const yesterdayBorderWaits: number[] = [];
   const yesterdayBorderEntryMap = new Map<string, string>();
@@ -583,7 +554,6 @@ function composeBrief(
   if (yesterdayBorderWaits.length > 0) {
     avgBorderWait = Math.round(yesterdayBorderWaits.reduce((a, b) => a + b, 0) / yesterdayBorderWaits.length);
   } else {
-    // Fallback: use border wait estimates
     avgBorderWait = 150;
   }
 
@@ -594,7 +564,6 @@ function composeBrief(
     avgBorderWaitMinutes: avgBorderWait,
   };
 
-  // ── Executive Summary ──
   const needsAttention = prioritisedDecisions.filter((d) => d.severity === "critical").length;
   const worstBorder =
     borderConditions.length > 0
@@ -639,13 +608,9 @@ export async function generateDailyBrief(
   const date = dateOverride || todayStr();
   const generatedAt = nowISO();
 
-  // 1. GATHER
-  const data = gatherData(companyId);
-
-  // 2. SCORE
+  const data = await gatherData(companyId);
   const scoredShipments = await scoreShipments(data.activeShipments);
 
-  // 3. RANK + 4. COMPOSE
   const brief = composeBrief(
     companyId,
     date,
@@ -658,22 +623,20 @@ export async function generateDailyBrief(
     data.borderEvents
   );
 
-  // 5. STORE
   const db = getDb();
   const criticalCount = brief.criticalAlerts.length;
   const missionReadyCount = brief.fleetOverview.missionReady;
   const complianceAlertCount = brief.complianceWatchlist.length;
 
-  // Upsert: replace if already exists for this company + date
-  db.prepare(
+  await db.prepare(
     `INSERT INTO intelligence_briefs (company_id, brief_date, generated_at, summary_json, high_risk_count, mission_ready_count, compliance_alert_count)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT(company_id, brief_date) DO UPDATE SET
-       generated_at = excluded.generated_at,
-       summary_json = excluded.summary_json,
-       high_risk_count = excluded.high_risk_count,
-       mission_ready_count = excluded.mission_ready_count,
-       compliance_alert_count = excluded.compliance_alert_count`
+       generated_at = EXCLUDED.generated_at,
+       summary_json = EXCLUDED.summary_json,
+       high_risk_count = EXCLUDED.high_risk_count,
+       mission_ready_count = EXCLUDED.mission_ready_count,
+       compliance_alert_count = EXCLUDED.compliance_alert_count`
   ).run(
     companyId,
     date,
@@ -684,18 +647,17 @@ export async function generateDailyBrief(
     complianceAlertCount
   );
 
-  // 6. RETURN
   return brief;
 }
 
 /**
  * Retrieve an existing brief from the database.
  */
-export function getStoredBrief(companyId: number, date: string): IntelligenceBrief | null {
+export async function getStoredBrief(companyId: number, date: string): Promise<IntelligenceBrief | null> {
   const db = getDb();
-  const row = db
+  const row = await db
     .prepare(
-      `SELECT * FROM intelligence_briefs WHERE company_id = ? AND brief_date = ?`
+      `SELECT * FROM intelligence_briefs WHERE company_id = $1 AND brief_date = $2`
     )
     .get(companyId, date) as { summary_json: string } | undefined;
 

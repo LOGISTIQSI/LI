@@ -9,9 +9,8 @@ export async function POST(
   try {
     const db = getDb();
 
-    // Resolve numeric shipment ID
     const isNumeric = /^\d+$/.test(params.id);
-    const shipment = db
+    const shipment = await db
       .prepare(
         `SELECT id FROM shipments WHERE ${isNumeric ? "id = ?" : "shipment_id = ?"}`
       )

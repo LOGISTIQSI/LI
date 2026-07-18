@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { analyzeShipmentCompliance, getRequiredDocuments, checkDocumentExpiry } from "@/lib/ai/compliance";
 
-// ═══════════════════════════════════════════════════════════════════
-// GET /api/compliance/status
-//   ?shipment_id=123  or  ?driver_id=5  or  ?vehicle_id=7
-// ═══════════════════════════════════════════════════════════════════
-
 export async function GET(request: NextRequest) {
   const db = getDb();
   const { searchParams } = new URL(request.url);
@@ -17,10 +12,9 @@ export async function GET(request: NextRequest) {
 
   // ── Shipment compliance ──
   if (shipmentId) {
-    const result = analyzeShipmentCompliance(Number(shipmentId));
+    const result = await analyzeShipmentCompliance(Number(shipmentId));
 
-    // Fetch shipment details for context
-    const shipment = db
+    const shipment = await db
       .prepare(
         `SELECT s.*, d.id AS drv_id, v.id AS veh_id
          FROM shipments s
@@ -47,7 +41,7 @@ export async function GET(request: NextRequest) {
 
   // ── Driver compliance ──
   if (driverId) {
-    const driver = db
+    const driver = await db
       .prepare("SELECT * FROM drivers WHERE id = ?")
       .get(Number(driverId)) as Record<string, unknown> | undefined;
 
@@ -55,7 +49,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Driver not found" }, { status: 404 });
     }
 
-    const docs = db
+    const docs = await db
       .prepare(
         `SELECT * FROM compliance_documents
          WHERE driver_id = ?`
@@ -67,7 +61,6 @@ export async function GET(request: NextRequest) {
       status: string;
     }>;
 
-    // Also check driver's own expiry fields
     const driverFields: { key: string; label: string; date: string | null }[] = [
       { key: "driver_license", label: "Driver License", date: driver.license_expiry as string },
       { key: "pdp", label: "Professional Driving Permit", date: driver.pdp_expiry as string },
@@ -121,7 +114,7 @@ export async function GET(request: NextRequest) {
 
   // ── Vehicle compliance ──
   if (vehicleId) {
-    const vehicle = db
+    const vehicle = await db
       .prepare("SELECT * FROM vehicles WHERE id = ?")
       .get(Number(vehicleId)) as Record<string, unknown> | undefined;
 
@@ -129,7 +122,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
     }
 
-    const docs = db
+    const docs = await db
       .prepare(
         `SELECT * FROM compliance_documents
          WHERE vehicle_id = ?`

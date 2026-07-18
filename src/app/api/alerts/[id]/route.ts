@@ -16,7 +16,7 @@ export async function PATCH(
     );
   }
 
-  const alert = db.prepare("SELECT * FROM alerts WHERE id = ?").get(id) as
+  const alert = await db.prepare("SELECT * FROM alerts WHERE id = ?").get(id) as
     | Record<string, unknown>
     | undefined;
 
@@ -30,16 +30,16 @@ export async function PATCH(
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   if (is_resolved) {
-    db.prepare(
+    await db.prepare(
       `UPDATE alerts SET is_resolved = 1, resolved_at = ?, resolution_notes = ? WHERE id = ?`
     ).run(now, resolution_notes || null, id);
   } else {
     // Allow un-resolving too
-    db.prepare(
+    await db.prepare(
       `UPDATE alerts SET is_resolved = 0, resolved_at = NULL, resolution_notes = NULL WHERE id = ?`
     ).run(id);
   }
 
-  const updated = db.prepare("SELECT * FROM alerts WHERE id = ?").get(id);
+  const updated = await db.prepare("SELECT * FROM alerts WHERE id = ?").get(id);
   return NextResponse.json(updated);
 }

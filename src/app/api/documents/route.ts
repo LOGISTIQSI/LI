@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
 
   query += " ORDER BY cd.created_at DESC";
 
-  const docs = db.prepare(query).all(...params);
+  const docs = await db.prepare(query).all(...params);
   return NextResponse.json(docs);
 }
 
@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const result = stmt.run(
+  const result = await stmt.run(
     shipmentId,
     driverId,
     vehicleId,
@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
     aiNotes
   );
 
-  const created = db
+  const created = await db
     .prepare("SELECT * FROM compliance_documents WHERE id = ?")
     .get(result.lastInsertRowid);
 

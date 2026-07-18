@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Resolve numeric shipment ID from shipment_id string
-  const shipment = db
+  const shipment = await db
     .prepare("SELECT id, status FROM shipments WHERE shipment_id = ?")
     .get(shipment_id) as { id: number; status: string } | undefined;
 
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const result = stmt.run(
+  const result = await stmt.run(
     shipment.id,
     event_type,
     latitude,
@@ -75,19 +75,21 @@ export async function POST(request: NextRequest) {
     if (dist < proximityThreshold) {
       // Update shipment status to 'at_border' if currently in_transit
       if (shipment.status === "in_transit") {
-        db.prepare(
+        await db.prepare(
           "UPDATE shipments SET status = 'at_border', updated_at = ? WHERE id = ?"
         ).run(now, shipment.id);
 
         // Also record a border_arrival event if this is the first border proximity
-        const recentBorderEvent = db
+        const thirtyMinAgo = new Date(new Date().getTime() - 30 * 60000)
+          .toISOString().replace("T", " ").slice(0, 19);
+        const recentBorderEvent = await db
           .prepare(
-            "SELECT id FROM trip_events WHERE shipment_id = ? AND event_type = 'border_arrival' AND recorded_at > datetime(?, '-30 minutes')"
+            "SELECT id FROM trip_events WHERE shipment_id = ? AND event_type = 'border_arrival' AND recorded_at > ?"
           )
-          .get(shipment.id, now) as { id: number } | undefined;
+          .get(shipment.id, thirtyMinAgo) as { id: number } | undefined;
 
         if (!recentBorderEvent) {
-          db.prepare(`
+          await db.prepare(`
             INSERT INTO trip_events (shipment_id, event_type, latitude, longitude, location_description, recorded_at)
             VALUES (?, 'border_arrival', ?, ?, ?, ?)
           `).run(shipment.id, latitude, longitude, `Approaching ${border.name} border`, now);
@@ -111,7 +113,7 @@ export async function POST(request: NextRequest) {
     const isStopped = speed_kmh != null && speed_kmh < 5;
     const title = isStopped ? "Vehicle stopped — possible breakdown" : "Delay — slow progress";
 
-    const existingDelayAlert = db
+    const existingDelayAlert = await db
       .prepare(
         `SELECT id FROM alerts 
          WHERE shipment_id = ? AND alert_type = 'delay' AND title = ? AND is_resolved = 0 
@@ -120,7 +122,7 @@ export async function POST(request: NextRequest) {
       .get(shipment.id, title) as { id: number } | undefined;
 
     if (!existingDelayAlert) {
-      db.prepare(
+      await db.prepare(
         `INSERT INTO alerts (shipment_id, alert_type, severity, title, description)
          VALUES (?, 'delay', ?, ?, ?)`
       ).run(
@@ -134,13 +136,13 @@ export async function POST(request: NextRequest) {
 
   // ── Auto-resolve delay alerts when shipment resumes normal speed ──
   if (event_type === "en_route" && speed_kmh != null && speed_kmh > 30) {
-    db.prepare(
-      `UPDATE alerts SET is_resolved = 1, resolved_at = datetime('now')
+    await db.prepare(
+      `UPDATE alerts SET is_resolved = 1, resolved_at = NOW()
        WHERE shipment_id = ? AND alert_type = 'delay' AND is_resolved = 0`
     ).run(shipment.id);
   }
 
-  const created = db
+  const created = await db
     .prepare("SELECT * FROM trip_events WHERE id = ?")
     .get(result.lastInsertRowid);
 
@@ -162,7 +164,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Resolve numeric ID
-  const shipment = db
+  const shipment = await db
     .prepare("SELECT id FROM shipments WHERE shipment_id = ?")
     .get(shipmentIdStr) as { id: number } | undefined;
 
@@ -182,7 +184,7 @@ export async function GET(request: NextRequest) {
     params.push(limit);
   }
 
-  const events = db.prepare(query).all(...params);
+  const events = await db.prepare(query).all(...params);
 
   return NextResponse.json(events);
 }

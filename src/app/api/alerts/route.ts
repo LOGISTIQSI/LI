@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       /SELECT a\.\*, s\.shipment_id AS shipment_ref/,
       "SELECT COUNT(*) as count"
     );
-    const result = db.prepare(countQuery).get(...params) as { count: number };
+    const result = await db.prepare(countQuery).get(...params) as { count: number };
     return NextResponse.json({ count: result.count });
   }
 
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     params.push(limit);
   }
 
-  const alerts = db.prepare(query).all(...params);
+  const alerts = await db.prepare(query).all(...params);
   return NextResponse.json(alerts);
 }
 
@@ -67,7 +67,7 @@ export async function PATCH(request: NextRequest) {
   const now = new Date().toISOString().replace("T", " ").slice(0, 19);
 
   if (action === "resolve_all_warnings") {
-    const result = db
+    const result = await db
       .prepare(
         `UPDATE alerts SET is_resolved = 1, resolved_at = ? 
          WHERE is_resolved = 0 AND severity = 'warning'`
@@ -77,7 +77,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (action === "dismiss_all_info") {
-    const result = db
+    const result = await db
       .prepare(
         `UPDATE alerts SET is_resolved = 1, resolved_at = ? 
          WHERE is_resolved = 0 AND severity = 'info'`
@@ -87,7 +87,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (action === "mark_all_read") {
-    const result = db
+    const result = await db
       .prepare(
         `UPDATE alerts SET is_resolved = 1, resolved_at = ? 
          WHERE is_resolved = 0`

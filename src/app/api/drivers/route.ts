@@ -22,6 +22,6 @@ export async function GET(request: NextRequest) {
 
   query += " ORDER BY u.full_name ASC";
 
-  const drivers = db.prepare(query).all(...params);
+  const drivers = await db.prepare(query).all(...params);
   return NextResponse.json(drivers);
 }

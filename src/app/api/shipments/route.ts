@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
 
   query += " ORDER BY s.created_at DESC";
 
-  const shipments = db.prepare(query).all(...params);
+  const shipments = await db.prepare(query).all(...params);
 
   return NextResponse.json(shipments);
 }
@@ -50,18 +50,14 @@ export async function POST(request: NextRequest) {
   const db = getDb();
   const body = await request.json();
 
-  // Generate shipment ID
   const year = new Date().getFullYear();
-  const count = db.prepare(
+  const count = await db.prepare(
     "SELECT COUNT(*) AS cnt FROM shipments WHERE shipment_id LIKE ?"
-  ).get(`SHIP-${year}-%`) as { cnt: number };
-  const seq = String((count.cnt + 1)).padStart(5, "0");
+  ).get(`SHIP-${year}-%`) as { cnt: string };
+  const seq = String((parseInt(count.cnt, 10) + 1)).padStart(5, "0");
   const shipmentId = `SHIP-${year}-${seq}`;
 
-  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
-
-  // Insert with NULL scores — calculated after insert
-  const stmt = db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO shipments (
       shipment_id, company_id, logistics_company_id, driver_id, vehicle_id,
       origin, destination, origin_country, destination_country,
@@ -74,9 +70,7 @@ export async function POST(request: NextRequest) {
       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready',
       ?, ?, NULL, NULL, NULL, NULL
     )
-  `);
-
-  const result = stmt.run(
+  `).run(
     shipmentId,
     body.company_id || 1,
     body.logistics_company_id || null,
@@ -89,26 +83,24 @@ export async function POST(request: NextRequest) {
     body.cargo_type,
     body.cargo_description || "",
     body.cargo_hs_code || "",
-    Math.round((body.cargo_value || 0) * 100), // convert to cents
+    Math.round((body.cargo_value || 0) * 100),
     body.cargo_weight_kg || 0,
     body.is_dangerous_goods ? 1 : 0,
-    body.dangerous_goods ? body.dg_class : null,
+    body.dg_class || null,
     JSON.stringify(body.border_crossings || []),
     body.departure_scheduled,
     body.eta
   );
 
-  const shipmentNumericId = Number(result.lastInsertRowid);
+  const shipmentNumericId = result.lastInsertRowid;
 
-  // Auto-calculate Mission Readiness Score after creation
   try {
     await calculateMissionReadiness(shipmentNumericId);
   } catch (err) {
     console.error("Failed to calculate mission readiness on creation:", err);
-    // Still return the shipment even if MRS calculation fails
   }
 
-  const newShipment = db.prepare("SELECT * FROM shipments WHERE id = ?").get(shipmentNumericId);
+  const newShipment = await db.prepare("SELECT * FROM shipments WHERE id = ?").get(shipmentNumericId);
 
   return NextResponse.json(newShipment, { status: 201 });
 }

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 export interface ActiveShipment {
   id: number;
   shipment_id: string;
@@ -33,7 +35,7 @@ export interface ActiveShipment {
 export async function GET() {
   const db = getDb();
 
-  const shipments = db
+  const shipments = await db
     .prepare(
       `
     SELECT

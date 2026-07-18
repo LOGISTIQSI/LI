@@ -7,7 +7,7 @@
 
 import { getDb } from "./db";
 
-function main() {
+async function main() {
   const db = getDb();
 
   // Verify all tables exist with zero rows
@@ -28,9 +28,10 @@ function main() {
 
   let allEmpty = true;
   for (const table of tables) {
-    const row = db.prepare(`SELECT COUNT(*) as cnt FROM ${table}`).get() as { cnt: number };
-    const status = row.cnt === 0 ? "✓ empty" : `✗ ${row.cnt} row(s) found`;
-    if (row.cnt > 0) allEmpty = false;
+    const row = await db.prepare(`SELECT COUNT(*) as cnt FROM ${table}`).get() as { cnt: string };
+    const cnt = parseInt(row.cnt, 10);
+    const status = cnt === 0 ? "✓ empty" : `✗ ${cnt} row(s) found`;
+    if (cnt > 0) allEmpty = false;
     console.log(`  ${table.padEnd(24)} ${status}`);
   }
 
@@ -53,7 +54,12 @@ function main() {
   console.log("  intelligence_briefs — daily executive operational intelligence briefs");
   console.log();
 
-  db.close();
+  // Close the pool
+  const { closeDb } = await import("./db");
+  await closeDb();
 }
 
-main();
+main().catch((e) => {
+  console.error("Production seed failed:", e);
+  process.exit(1);
+});

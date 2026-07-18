@@ -8,14 +8,14 @@ import { checkDocumentExpiry } from "@/lib/ai/compliance";
 export interface OCSFactorResult {
   factor: string;
   label: string;
-  weight: number;       // 0–1
-  rawScore: number;     // 0–1
-  weightedScore: number; // rawScore × weight
+  weight: number;
+  rawScore: number;
+  weightedScore: number;
   details: string[];
 }
 
 export interface OperationalConfidenceResult {
-  score: number;          // 0–1 probability
+  score: number;
   threshold: "on_track" | "at_risk" | "critical";
   factors: OCSFactorResult[];
   calculatedAt: string;
@@ -45,7 +45,6 @@ function nowISO(): string {
   return new Date().toISOString().replace("T", " ").slice(0, 19);
 }
 
-// Border wait time averages (hours)
 const BORDER_WAIT_HOURS: Record<string, number> = {
   "Beitbridge": 4.2,
   "Kazungula": 1.8,
@@ -62,17 +61,16 @@ const BORDER_WAIT_HOURS: Record<string, number> = {
 // O1: Route Adherence (25%)
 // ═══════════════════════════════════════════════════════════════════
 
-function scoreO1(
+async function scoreO1(
   shipmentId: number,
-  shipment: Record<string, unknown>
-): { rawScore: number; details: string[] } {
+  _shipment: Record<string, unknown>
+): Promise<{ rawScore: number; details: string[] }> {
   const db = getDb();
 
-  // Get recent trip events with GPS data
-  const events = db
+  const events = await db
     .prepare(
       `SELECT * FROM trip_events
-       WHERE shipment_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL
+       WHERE shipment_id = $1 AND latitude IS NOT NULL AND longitude IS NOT NULL
        ORDER BY recorded_at DESC
        LIMIT 10`
     )
@@ -82,7 +80,6 @@ function scoreO1(
     return { rawScore: 1.0, details: ["Insufficient GPS data for route adherence check (using neutral default)"] };
   }
 
-  // Simple adherence check: measure how straight the path is (low deviation = good)
   const details: string[] = [];
   let totalDeviationKm = 0;
 
@@ -94,11 +91,8 @@ function scoreO1(
     totalDeviationKm += dist;
   }
 
-  // Average distance between points — if moving at ~70km/h, expect ~1.17km/min
-  // Large gaps might indicate off-route, small gaps = good tracking
   const avgPointDist = totalDeviationKm / (events.length - 1);
 
-  // Score: closer to 1–2km between points is normal highway driving
   if (avgPointDist > 50) {
     details.push(`⚠ Large gaps in GPS tracking (avg ${Math.round(avgPointDist)}km between points) — possible route deviation`);
     return { rawScore: 0.6, details };
@@ -112,13 +106,13 @@ function scoreO1(
 // O2: Speed Compliance (10%)
 // ═══════════════════════════════════════════════════════════════════
 
-function scoreO2(shipmentId: number): { rawScore: number; details: string[] } {
+async function scoreO2(shipmentId: number): Promise<{ rawScore: number; details: string[] }> {
   const db = getDb();
 
-  const events = db
+  const events = await db
     .prepare(
       `SELECT speed_kmh, recorded_at FROM trip_events
-       WHERE shipment_id = ? AND speed_kmh IS NOT NULL
+       WHERE shipment_id = $1 AND speed_kmh IS NOT NULL
        ORDER BY recorded_at DESC
        LIMIT 10`
     )
@@ -133,37 +127,33 @@ function scoreO2(shipmentId: number): { rawScore: number; details: string[] } {
 
   const details: string[] = [];
 
-  // Detect stopped vehicle (avg speed < 5 km/h)
   if (avgSpeed < 5) {
     details.push(`⚠ Vehicle appears stopped (avg ${Math.round(avgSpeed)} km/h over last ${events.length} readings) — possible breakdown or extended stop`);
     return { rawScore: 0.3, details };
   }
 
-  // Detect very slow progress (< 30 km/h)
   if (avgSpeed < 30) {
     details.push(`⚠ Slow progress: avg ${Math.round(avgSpeed)} km/h — possible congestion or road conditions`);
     return { rawScore: 0.6, details };
   }
 
-  // Normal highway speed (50–100 km/h)
   if (avgSpeed <= 100) {
     details.push(`✓ Normal highway speed: avg ${Math.round(avgSpeed)} km/h`);
     return { rawScore: 1.0, details };
   }
 
-  // Speeding (> 100 km/h for heavy vehicles is concerning)
   details.push(`⚠ Speed above expected range: avg ${Math.round(avgSpeed)} km/h`);
   return { rawScore: 0.8, details };
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// O3: Time Buffer (30%) — Core metric
+// O3: Time Buffer (30%)
 // ═══════════════════════════════════════════════════════════════════
 
-function scoreO3(
+async function scoreO3(
   shipmentId: number,
   shipment: Record<string, unknown>
-): { rawScore: number; details: string[] } {
+): Promise<{ rawScore: number; details: string[] }> {
   const db = getDb();
   const details: string[] = [];
 
@@ -180,33 +170,28 @@ function scoreO3(
   const depDate = new Date(departureActual.replace(" ", "T"));
   const etaDate = new Date(eta.replace(" ", "T"));
 
-  // Total planned duration (ms)
   const totalDuration = etaDate.getTime() - depDate.getTime();
   if (totalDuration <= 0) {
     details.push("⚠ ETA is before departure — data issue");
     return { rawScore: 0.5, details };
   }
 
-  // Time elapsed
   const timeElapsed = now.getTime() - depDate.getTime();
   const timeRemaining = Math.max(0, etaDate.getTime() - now.getTime());
   const timeRemainingPct = timeRemaining / totalDuration;
 
-  // Get last GPS position
-  const lastEvent = db
+  const lastEvent = await db
     .prepare(
       `SELECT latitude, longitude FROM trip_events
-       WHERE shipment_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL
+       WHERE shipment_id = $1 AND latitude IS NOT NULL AND longitude IS NOT NULL
        ORDER BY recorded_at DESC LIMIT 1`
     )
     .get(shipmentId) as { latitude: number; longitude: number } | undefined;
 
-  // Destination coordinates (approximate from city/region names)
   const destCoords = getApproxCoords(destination);
   const originCoords = getApproxCoords(origin);
 
   if (!lastEvent || !destCoords) {
-    // Fallback: use time-based estimate
     const bufferRatio = timeRemainingPct / Math.max(0.2, 1 - timeElapsed / totalDuration);
 
     details.push(`Time elapsed: ${Math.round(timeElapsed / 3600000)}h, remaining: ${Math.round(timeRemaining / 3600000)}h`);
@@ -230,14 +215,11 @@ function scoreO3(
     return { rawScore, details };
   }
 
-  // Distance remaining from last GPS to destination
   const distRemaining = haversineKm(lastEvent.latitude, lastEvent.longitude, destCoords.lat, destCoords.lng);
   const totalDist = haversineKm(originCoords!.lat, originCoords!.lng, destCoords.lat, destCoords.lng) || 1;
 
   const distRemainingPct = Math.max(0, Math.min(1, distRemaining / totalDist));
 
-  // Buffer ratio = time_remaining% / distance_remaining%
-  // > 1.0 = ahead, < 1.0 = behind
   const bufferRatio = distRemainingPct > 0
     ? timeRemainingPct / distRemainingPct
     : 1.0;
@@ -274,7 +256,7 @@ function scoreO3(
 // O4: Border Delay Risk (15%)
 // ═══════════════════════════════════════════════════════════════════
 
-function scoreO4(shipmentId: number, shipment: Record<string, unknown>): { rawScore: number; details: string[] } {
+async function scoreO4(shipmentId: number, shipment: Record<string, unknown>): Promise<{ rawScore: number; details: string[] }> {
   const db = getDb();
   const details: string[] = [];
 
@@ -283,11 +265,10 @@ function scoreO4(shipmentId: number, shipment: Record<string, unknown>): { rawSc
     return { rawScore: 1.0, details: ["No border crossings on this route"] };
   }
 
-  // Check which borders have been crossed already
-  const crossedEvents = db
+  const crossedEvents = await db
     .prepare(
       `SELECT location_description FROM trip_events
-       WHERE shipment_id = ? AND event_type = 'border_departure'
+       WHERE shipment_id = $1 AND event_type = 'border_departure'
        ORDER BY recorded_at DESC`
     )
     .all(shipmentId) as Array<{ location_description: string }>;
@@ -313,7 +294,6 @@ function scoreO4(shipmentId: number, shipment: Record<string, unknown>): { rawSc
     return { rawScore: 1.0, details: details2 };
   }
 
-  // Calculate expected wait time for pending borders
   let totalWaitHours = 0;
   for (const b of pendingBorders) {
     const wait = BORDER_WAIT_HOURS[b] ?? BORDER_WAIT_HOURS["default"];
@@ -321,19 +301,16 @@ function scoreO4(shipmentId: number, shipment: Record<string, unknown>): { rawSc
     details2.push(`⚠ ${b}: ~${wait}h expected wait (${wait >= 3 ? "congested" : "moderate"})`);
   }
 
-  // Score: lower wait = higher score
-  // 0h wait = 1.0, 6h+ wait = 0.3
   const rawScore = Math.max(0.3, 1.0 - (totalWaitHours / 15));
 
   return { rawScore, details: details2 };
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// O5: External Risk (10%) — Placeholder
+// O5: External Risk (10%)
 // ═══════════════════════════════════════════════════════════════════
 
 function scoreO5(_shipmentId: number): { rawScore: number; details: string[] } {
-  // Placeholder — would integrate weather APIs, road condition feeds, etc.
   return {
     rawScore: 0.85,
     details: ["ℹ External risk assessment: neutral (weather/road APIs not yet integrated)"],
@@ -344,16 +321,15 @@ function scoreO5(_shipmentId: number): { rawScore: number; details: string[] } {
 // O6: Compliance Mid-Journey (10%)
 // ═══════════════════════════════════════════════════════════════════
 
-function scoreO6(
+async function scoreO6(
   shipmentId: number,
   shipment: Record<string, unknown>,
   driverId: number | null,
   vehicleId: number | null
-): { rawScore: number; details: string[] } {
+): Promise<{ rawScore: number; details: string[] }> {
   const db = getDb();
   const details: string[] = [];
 
-  // Check docs expiring before ETA
   const etaDate = shipment.eta ? new Date((shipment.eta as string).replace(" ", "T")) : null;
   if (!etaDate) {
     return { rawScore: 1.0, details: ["No ETA set — cannot assess compliance mid-journey"] };
@@ -362,11 +338,10 @@ function scoreO6(
   const now = new Date();
   const etaDays = Math.ceil((etaDate.getTime() - now.getTime()) / 86400000);
 
-  // Get all docs linked to this shipment
-  const docs = db
+  const docs = await db
     .prepare(
       `SELECT * FROM compliance_documents
-       WHERE (shipment_id = ? OR driver_id = ? OR vehicle_id = ?)
+       WHERE (shipment_id = $1 OR driver_id = $2 OR vehicle_id = $3)
          AND expiry_date IS NOT NULL`
     )
     .all(shipmentId, driverId, vehicleId) as Array<{
@@ -380,18 +355,16 @@ function scoreO6(
   for (const doc of docs) {
     const check = checkDocumentExpiry({ expiry_date: doc.expiry_date });
     if (check) {
-      // If the doc expires before or near ETA
       if (check.daysRemaining <= etaDays + 2) {
         riskyDocs.push(`${doc.document_type.replace(/_/g, " ")} (expires in ${check.daysRemaining}d, ETA in ${etaDays}d)`);
       }
     }
   }
 
-  // Check unresolved alerts
-  const unresolvedAlerts = db
+  const unresolvedAlerts = await db
     .prepare(
       `SELECT COUNT(*) as cnt FROM alerts
-       WHERE shipment_id = ? AND is_resolved = 0 AND severity IN ('warning', 'critical')`
+       WHERE shipment_id = $1 AND is_resolved = 0 AND severity IN ('warning', 'critical')`
     )
     .get(shipmentId) as { cnt: number };
 
@@ -408,7 +381,6 @@ function scoreO6(
     return { rawScore: 1.0, details };
   }
 
-  // Score: penalize based on risky docs and unresolved alerts
   const penalty = riskyDocs.length * 0.15 + unresolvedAlerts.cnt * 0.05;
   const rawScore = Math.max(0.2, 1.0 - penalty);
 
@@ -416,7 +388,7 @@ function scoreO6(
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Approximate coordinates for major cities (for distance calculations)
+// Approximate coordinates
 // ═══════════════════════════════════════════════════════════════════
 
 function getApproxCoords(location: string): { lat: number; lng: number } | null {
@@ -447,6 +419,61 @@ function getApproxCoords(location: string): { lat: number; lng: number } | null 
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Alert helpers
+// ═══════════════════════════════════════════════════════════════════
+
+async function upsertAlert(
+  db: ReturnType<typeof getDb>,
+  params: {
+    shipment_id?: number | null;
+    alert_type: string;
+    severity: string;
+    title: string;
+    description: string;
+  }
+): Promise<void> {
+  const existing = await db
+    .prepare(
+      `SELECT id FROM alerts
+       WHERE alert_type = $1 AND title = $2 AND is_resolved = 0
+         AND ($3::int IS NULL OR shipment_id = $4)
+       LIMIT 1`
+    )
+    .get(params.alert_type, params.title, params.shipment_id, params.shipment_id) as
+    | { id: number }
+    | undefined;
+
+  if (existing) {
+    await db.prepare(
+      `UPDATE alerts SET severity = $1, description = $2, created_at = NOW()
+       WHERE id = $3`
+    ).run(params.severity, params.description, existing.id);
+  } else {
+    await db.prepare(
+      `INSERT INTO alerts (shipment_id, alert_type, severity, title, description)
+       VALUES ($1, $2, $3, $4, $5)`
+    ).run(
+      params.shipment_id || null,
+      params.alert_type,
+      params.severity,
+      params.title,
+      params.description
+    );
+  }
+}
+
+async function resolveAlertByTitle(
+  db: ReturnType<typeof getDb>,
+  shipmentId: number,
+  title: string
+): Promise<void> {
+  await db.prepare(
+    `UPDATE alerts SET is_resolved = 1, resolved_at = NOW()
+     WHERE shipment_id = $1 AND title = $2 AND is_resolved = 0`
+  ).run(shipmentId, title);
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Main: calculateOperationalConfidence
 // ═══════════════════════════════════════════════════════════════════
 
@@ -455,8 +482,8 @@ export async function calculateOperationalConfidence(
 ): Promise<OperationalConfidenceResult> {
   const db = getDb();
 
-  const shipment = db
-    .prepare("SELECT * FROM shipments WHERE id = ?")
+  const shipment = await db
+    .prepare("SELECT * FROM shipments WHERE id = $1")
     .get(shipmentId) as Record<string, unknown> | undefined;
 
   if (!shipment) {
@@ -467,14 +494,13 @@ export async function calculateOperationalConfidence(
   const vehicleId = shipment.vehicle_id as number | null;
 
   // ── Run all six factor scorers ──
-  const o1 = scoreO1(shipmentId, shipment);
-  const o2 = scoreO2(shipmentId);
-  const o3 = scoreO3(shipmentId, shipment);
-  const o4 = scoreO4(shipmentId, shipment);
+  const o1 = await scoreO1(shipmentId, shipment);
+  const o2 = await scoreO2(shipmentId);
+  const o3 = await scoreO3(shipmentId, shipment);
+  const o4 = await scoreO4(shipmentId, shipment);
   const o5 = scoreO5(shipmentId);
-  const o6 = scoreO6(shipmentId, shipment, driverId, vehicleId);
+  const o6 = await scoreO6(shipmentId, shipment, driverId, vehicleId);
 
-  // ── Weighted factors ──
   const weights: { factor: string; label: string; weight: number; rawScore: number }[] = [
     { factor: "O1", label: "Route Adherence", weight: 0.25, rawScore: o1.rawScore },
     { factor: "O2", label: "Speed Compliance", weight: 0.10, rawScore: o2.rawScore },
@@ -504,56 +530,49 @@ export async function calculateOperationalConfidence(
 
   const score = Math.round(factors.reduce((sum, f) => sum + f.weightedScore, 0) * 1000) / 1000;
 
-  // Determine threshold
   let threshold: "on_track" | "at_risk" | "critical";
   if (score >= 0.85) threshold = "on_track";
   else if (score >= 0.60) threshold = "at_risk";
   else threshold = "critical";
 
-  // Update the shipment record
   const now = nowISO();
-  db.prepare(
-    `UPDATE shipments SET operational_confidence_score = ?, confidence_calculated_at = ?, updated_at = ? WHERE id = ?`
+  await db.prepare(
+    `UPDATE shipments SET operational_confidence_score = $1, confidence_calculated_at = $2, updated_at = $3 WHERE id = $4`
   ).run(score, now, now, shipmentId);
 
-  // ── Create alerts for critical operational issues ──
-
-  // O2: Speed compliance — create delay alert if vehicle appears stopped
+  // ── Create alerts ──
   if (o2.rawScore <= 0.3) {
     const title = "Vehicle stopped — possible breakdown";
     const desc = o2.details[0] || "Vehicle speed indicates vehicle may be stopped or broken down";
-    upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "critical", title, description: desc });
+    await upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "critical", title, description: desc });
   } else if (o2.rawScore <= 0.6) {
     const title = "Slow progress detected";
     const desc = o2.details[0] || "Vehicle moving below expected speed — possible congestion or road issue";
-    upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "warning", title, description: desc });
+    await upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "warning", title, description: desc });
   } else {
-    // Resolve previous speed-related delay alerts
-    resolveAlertByTitle(db, shipmentId, "Vehicle stopped — possible breakdown");
-    resolveAlertByTitle(db, shipmentId, "Slow progress detected");
+    await resolveAlertByTitle(db, shipmentId, "Vehicle stopped — possible breakdown");
+    await resolveAlertByTitle(db, shipmentId, "Slow progress detected");
   }
 
-  // O4: Border delay — create alert if high expected wait
   if (o4.rawScore <= 0.5) {
     const title = "High border delay risk";
     const desc = o4.details.filter((d) => d.startsWith("⚠")).join("; ") || "Significant border wait times expected";
-    upsertAlert(db, { shipment_id: shipmentId, alert_type: "border", severity: "warning", title, description: desc });
+    await upsertAlert(db, { shipment_id: shipmentId, alert_type: "border", severity: "warning", title, description: desc });
   } else {
-    resolveAlertByTitle(db, shipmentId, "High border delay risk");
+    await resolveAlertByTitle(db, shipmentId, "High border delay risk");
   }
 
-  // O3: Falling severely behind schedule
   if (o3.rawScore <= 0.35) {
     const title = "Critically behind schedule";
     const desc = o3.details.filter((d) => d.startsWith("✗")).join("; ") || "Shipment is critically behind schedule and unlikely to meet ETA";
-    upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "critical", title, description: desc });
+    await upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "critical", title, description: desc });
   } else if (o3.rawScore <= 0.55) {
     const title = "Behind schedule";
     const desc = o3.details.filter((d) => d.startsWith("⚠")).join("; ") || "Shipment is falling behind planned schedule";
-    upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "warning", title, description: desc });
+    await upsertAlert(db, { shipment_id: shipmentId, alert_type: "delay", severity: "warning", title, description: desc });
   } else {
-    resolveAlertByTitle(db, shipmentId, "Critically behind schedule");
-    resolveAlertByTitle(db, shipmentId, "Behind schedule");
+    await resolveAlertByTitle(db, shipmentId, "Critically behind schedule");
+    await resolveAlertByTitle(db, shipmentId, "Behind schedule");
   }
 
   return {
@@ -562,57 +581,4 @@ export async function calculateOperationalConfidence(
     factors,
     calculatedAt: now,
   };
-}
-
-// ── Alert helpers ──
-
-function upsertAlert(
-  db: ReturnType<typeof getDb>,
-  params: {
-    shipment_id?: number | null;
-    alert_type: string;
-    severity: string;
-    title: string;
-    description: string;
-  }
-): void {
-  const existing = db
-    .prepare(
-      `SELECT id FROM alerts
-       WHERE alert_type = ? AND title = ? AND is_resolved = 0
-         AND (? IS NULL OR shipment_id = ?)
-       LIMIT 1`
-    )
-    .get(params.alert_type, params.title, params.shipment_id, params.shipment_id) as
-    | { id: number }
-    | undefined;
-
-  if (existing) {
-    db.prepare(
-      `UPDATE alerts SET severity = ?, description = ?, created_at = datetime('now')
-       WHERE id = ?`
-    ).run(params.severity, params.description, existing.id);
-  } else {
-    db.prepare(
-      `INSERT INTO alerts (shipment_id, alert_type, severity, title, description)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(
-      params.shipment_id || null,
-      params.alert_type,
-      params.severity,
-      params.title,
-      params.description
-    );
-  }
-}
-
-function resolveAlertByTitle(
-  db: ReturnType<typeof getDb>,
-  shipmentId: number,
-  title: string
-): void {
-  db.prepare(
-    `UPDATE alerts SET is_resolved = 1, resolved_at = datetime('now')
-     WHERE shipment_id = ? AND title = ? AND is_resolved = 0`
-  ).run(shipmentId, title);
 }

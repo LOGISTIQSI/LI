@@ -21,6 +21,6 @@ export async function GET(request: NextRequest) {
 
   query += " ORDER BY v.registration_number ASC";
 
-  const vehicles = db.prepare(query).all(...params);
+  const vehicles = await db.prepare(query).all(...params);
   return NextResponse.json(vehicles);
 }

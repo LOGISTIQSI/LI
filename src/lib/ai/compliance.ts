@@ -22,7 +22,7 @@ export interface ComplianceStatus {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Document type definitions — what each type means
+// Document type definitions
 // ═══════════════════════════════════════════════════════════════════
 
 const DOCUMENT_DEFINITIONS: Record<string, string> = {
@@ -46,7 +46,6 @@ const DOCUMENT_DEFINITIONS: Record<string, string> = {
   insurance_cross_border: "Cross-border insurance rider",
 };
 
-// Always-required documents regardless of trip type
 const ALWAYS_REQUIRED: string[] = [
   "driver_license",
   "pdp",
@@ -56,7 +55,6 @@ const ALWAYS_REQUIRED: string[] = [
   "cargo_manifest",
 ];
 
-// Required for any cross-border trip
 const CROSS_BORDER_REQUIRED: string[] = [
   "passport",
   "medical_certificate",
@@ -67,20 +65,18 @@ const CROSS_BORDER_REQUIRED: string[] = [
   "insurance_cross_border",
 ];
 
-// DG-specific
 const DG_REQUIRED: string[] = ["dg_endorsement", "dg_permit"];
 
-// Country-specific requirements
 const COUNTRY_SPECIFIC: Record<string, string[]> = {
-  CD: ["yellow_fever_cert"], // DRC
-  ZM: ["hiv_cert"], // Zambia
-  MZ: ["yellow_fever_cert"], // Mozambique
-  ZW: ["hiv_cert"], // Zimbabwe
-  AO: ["yellow_fever_cert"], // Angola
-  NA: [], // Namibia
-  BW: [], // Botswana
-  ZA: [], // South Africa
-  TZ: ["yellow_fever_cert"], // Tanzania
+  CD: ["yellow_fever_cert"],
+  ZM: ["hiv_cert"],
+  MZ: ["yellow_fever_cert"],
+  ZW: ["hiv_cert"],
+  AO: ["yellow_fever_cert"],
+  NA: [],
+  BW: [],
+  ZA: [],
+  TZ: ["yellow_fever_cert"],
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -122,27 +118,20 @@ export function getRequiredDocuments(shipment: {
 }): string[] {
   const required = new Set<string>();
 
-  // Always required
   for (const d of ALWAYS_REQUIRED) required.add(d);
 
-  // Check if cross-border
   const origin = (shipment.origin_country || "").toUpperCase();
   const dest = (shipment.destination_country || "").toUpperCase();
   const isCrossBorder = origin !== dest;
 
   if (isCrossBorder) {
     for (const d of CROSS_BORDER_REQUIRED) required.add(d);
-
-    // Country-specific for destination
     const destReqs = COUNTRY_SPECIFIC[dest] || [];
     for (const d of destReqs) required.add(d);
-
-    // Country-specific for origin
     const originReqs = COUNTRY_SPECIFIC[origin] || [];
     for (const d of originReqs) required.add(d);
   }
 
-  // DG
   const isDg = shipment.is_dangerous_goods === 1 || shipment.is_dangerous_goods === true;
   if (isDg) {
     for (const d of DG_REQUIRED) required.add(d);
@@ -155,7 +144,7 @@ export function getRequiredDocuments(shipment: {
 // Alert helpers
 // ═══════════════════════════════════════════════════════════════════
 
-function upsertAlert(
+async function upsertAlert(
   db: ReturnType<typeof getDb>,
   params: {
     shipment_id?: number | null;
@@ -166,18 +155,17 @@ function upsertAlert(
     title: string;
     description: string;
   }
-): void {
-  // Check for existing unresolved alert of same type for same entity
-  const existing = db
+): Promise<void> {
+  const existing = await db
     .prepare(
       `SELECT id FROM alerts
-       WHERE alert_type = ?
-         AND title = ?
+       WHERE alert_type = $1
+         AND title = $2
          AND is_resolved = 0
          AND (
-           (? IS NOT NULL AND shipment_id = ?) OR
-           (? IS NOT NULL AND driver_id = ?) OR
-           (? IS NOT NULL AND vehicle_id = ?)
+           ($3::int IS NOT NULL AND shipment_id = $4) OR
+           ($5::int IS NOT NULL AND driver_id = $6) OR
+           ($7::int IS NOT NULL AND vehicle_id = $8)
          )
        LIMIT 1`
     )
@@ -193,15 +181,14 @@ function upsertAlert(
     ) as { id: number } | undefined;
 
   if (existing) {
-    // Update severity if it escalated
-    db.prepare(
-      `UPDATE alerts SET severity = MAX(severity, ?), description = ?, created_at = datetime('now')
-       WHERE id = ?`
+    await db.prepare(
+      `UPDATE alerts SET severity = GREATEST(severity, $1), description = $2, created_at = NOW()
+       WHERE id = $3`
     ).run(params.severity, params.description, existing.id);
   } else {
-    db.prepare(
+    await db.prepare(
       `INSERT INTO alerts (shipment_id, driver_id, vehicle_id, alert_type, severity, title, description)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`
     ).run(
       params.shipment_id || null,
       params.driver_id || null,
@@ -214,26 +201,26 @@ function upsertAlert(
   }
 }
 
-function resolveAlertsForEntity(
+async function resolveAlertsForEntity(
   db: ReturnType<typeof getDb>,
   entityType: "shipment" | "driver" | "vehicle",
   entityId: number,
   keepTitles: string[]
-): void {
+): Promise<void> {
   const column = `${entityType}_id`;
-  // Resolve alerts that are no longer relevant
   if (keepTitles.length === 0) {
-    db.prepare(
-      `UPDATE alerts SET is_resolved = 1, resolved_at = datetime('now')
-       WHERE ${column} = ? AND is_resolved = 0 AND alert_type IN ('compliance', 'expiry')`
+    await db.prepare(
+      `UPDATE alerts SET is_resolved = 1, resolved_at = NOW()
+       WHERE ${column} = $1 AND is_resolved = 0 AND alert_type IN ('compliance', 'expiry')`
     ).run(entityId);
     return;
   }
 
-  const placeholders = keepTitles.map(() => "?").join(",");
-  db.prepare(
-    `UPDATE alerts SET is_resolved = 1, resolved_at = datetime('now')
-     WHERE ${column} = ?
+  // Build NOT IN clause
+  const placeholders = keepTitles.map((_, i) => `$${i + 2}`).join(",");
+  await db.prepare(
+    `UPDATE alerts SET is_resolved = 1, resolved_at = NOW()
+     WHERE ${column} = $1
        AND is_resolved = 0
        AND alert_type IN ('compliance', 'expiry')
        AND title NOT IN (${placeholders})`
@@ -244,17 +231,16 @@ function resolveAlertsForEntity(
 // analyzeShipmentCompliance
 // ═══════════════════════════════════════════════════════════════════
 
-export function analyzeShipmentCompliance(shipmentId: number): ComplianceStatus {
+export async function analyzeShipmentCompliance(shipmentId: number): Promise<ComplianceStatus> {
   const db = getDb();
 
-  // Fetch shipment info
-  const shipment = db
+  const shipment = await db
     .prepare(
       `SELECT s.*, d.id AS drv_id, v.id AS veh_id
        FROM shipments s
        LEFT JOIN drivers d ON s.driver_id = d.id
        LEFT JOIN vehicles v ON s.vehicle_id = v.id
-       WHERE s.id = ?`
+       WHERE s.id = $1`
     )
     .get(shipmentId) as Record<string, unknown> | undefined;
 
@@ -271,18 +257,16 @@ export function analyzeShipmentCompliance(shipmentId: number): ComplianceStatus 
     };
   }
 
-  // Determine required document types
   const requiredTypes = getRequiredDocuments({
     origin_country: shipment.origin_country as string,
     destination_country: shipment.destination_country as string,
     is_dangerous_goods: shipment.is_dangerous_goods as number,
   });
 
-  // Fetch existing documents linked to this shipment, driver, or vehicle
-  const existingDocs = db
+  const existingDocs = await db
     .prepare(
       `SELECT * FROM compliance_documents
-       WHERE shipment_id = ? OR driver_id = ? OR vehicle_id = ?`
+       WHERE shipment_id = $1 OR driver_id = $2 OR vehicle_id = $3`
     )
     .all(shipmentId, shipment.drv_id || null, shipment.veh_id || null) as Array<{
     id: number;
@@ -294,7 +278,6 @@ export function analyzeShipmentCompliance(shipmentId: number): ComplianceStatus 
     vehicle_id: number | null;
   }>;
 
-  // Group existing docs by type
   const docsByType: Record<string, typeof existingDocs> = {};
   for (const doc of existingDocs) {
     if (!docsByType[doc.document_type]) docsByType[doc.document_type] = [];
@@ -302,11 +285,6 @@ export function analyzeShipmentCompliance(shipmentId: number): ComplianceStatus 
   }
 
   const activeAlertTitles: string[] = [];
-
-  // Update document statuses based on expiry
-  const updateStmt = db.prepare(
-    `UPDATE compliance_documents SET status = ?, ai_verified = 1, updated_at = datetime('now') WHERE id = ?`
-  );
 
   for (const doc of existingDocs) {
     const check = checkDocumentExpiry(doc);
@@ -319,20 +297,21 @@ export function analyzeShipmentCompliance(shipmentId: number): ComplianceStatus 
     }
 
     if (newStatus !== doc.status) {
-      updateStmt.run(newStatus, doc.id);
+      await db.prepare(
+        `UPDATE compliance_documents SET status = $1, ai_verified = 1, updated_at = NOW() WHERE id = $2`
+      ).run(newStatus, doc.id);
       doc.status = newStatus;
     }
 
-    // Create alerts for critical/warning
     if (check && check.severity !== "info") {
-      const entityId = doc.shipment_id || doc.driver_id || doc.vehicle_id;
       const entityCol = doc.shipment_id ? "shipment_id" : doc.driver_id ? "driver_id" : "vehicle_id";
+      const entityId = doc.shipment_id || doc.driver_id || doc.vehicle_id;
       const title = `${doc.document_type.replace(/_/g, " ")} ${check.status === "expired" ? "EXPIRED" : "expiring in " + check.daysRemaining + " days"}`;
       const desc = `${doc.document_type.replace(/_/g, " ")} document (${doc.document_type}) ${
         check.status === "expired" ? "has EXPIRED" : `expires in ${check.daysRemaining} days`
       }.`;
 
-      upsertAlert(db, {
+      await upsertAlert(db, {
         [entityCol]: entityId,
         shipment_id: doc.shipment_id,
         driver_id: doc.driver_id,
@@ -351,7 +330,6 @@ export function analyzeShipmentCompliance(shipmentId: number): ComplianceStatus 
   const missing: { document_type: string; description: string }[] = [];
   for (const reqType of requiredTypes) {
     const docs = docsByType[reqType] || [];
-    // Consider it "covered" if at least one non-expired document exists
     const hasValid = docs.some(
       (d) => d.status === "valid" || d.status === "expiring_soon" || d.status === "under_review"
     );
@@ -359,9 +337,8 @@ export function analyzeShipmentCompliance(shipmentId: number): ComplianceStatus 
       const desc = DOCUMENT_DEFINITIONS[reqType] || `Required: ${reqType.replace(/_/g, " ")}`;
       missing.push({ document_type: reqType, description: desc });
 
-      // Create alert for missing documents
       const title = `Missing: ${reqType.replace(/_/g, " ")}`;
-      upsertAlert(db, {
+      await upsertAlert(db, {
         shipment_id: shipmentId,
         driver_id: (shipment.drv_id as number) || null,
         vehicle_id: (shipment.veh_id as number) || null,
@@ -374,21 +351,18 @@ export function analyzeShipmentCompliance(shipmentId: number): ComplianceStatus 
     }
   }
 
-  // Resolve alerts that are no longer relevant
-  resolveAlertsForEntity(db, "shipment", shipmentId, activeAlertTitles);
+  await resolveAlertsForEntity(db, "shipment", shipmentId, activeAlertTitles);
 
-  // Calculate stats
   const allDocs = existingDocs.filter((d) => d.status !== "missing");
   const validCount = allDocs.filter((d) => d.status === "valid").length;
   const expiringCount = allDocs.filter((d) => d.status === "expiring_soon").length;
   const expiredCount = allDocs.filter((d) => d.status === "expired").length;
   const totalDocs = validCount + expiringCount + expiredCount + missing.length;
 
-  // Compliance score: penalize based on missing and expired
   const maxPenalty = requiredTypes.length;
   let penalty = 0;
-  penalty += missing.length * 2; // Missing docs are a heavy penalty
-  penalty += expiredCount; // Expired docs
+  penalty += missing.length * 2;
+  penalty += expiredCount;
   const complianceScore = Math.max(0, Math.round(100 - (penalty / Math.max(maxPenalty * 2, 1)) * 100));
 
   return {

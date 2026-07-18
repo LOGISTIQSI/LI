@@ -4,10 +4,8 @@ import { checkDocumentExpiry } from "@/lib/ai/compliance";
 /**
  * Scans all compliance_documents and entity expiry fields,
  * updates statuses, and creates/resolves alerts.
- *
- * Can be called as a scheduled job (cron) or on-demand.
  */
-export function updateAllDocumentStatuses(): {
+export async function updateAllDocumentStatuses(): Promise<{
   documentsUpdated: number;
   documentsExpired: number;
   documentsExpiringSoon: number;
@@ -15,7 +13,7 @@ export function updateAllDocumentStatuses(): {
   alertsResolved: number;
   driverExpiryIssues: number;
   vehicleExpiryIssues: number;
-} {
+}> {
   const db = getDb();
   let documentsUpdated = 0;
   let documentsExpired = 0;
@@ -25,7 +23,7 @@ export function updateAllDocumentStatuses(): {
   let vehicleExpiryIssues = 0;
 
   // ── 1. Scan all compliance_documents ──
-  const docs = db.prepare(
+  const docs = await db.prepare(
     `SELECT * FROM compliance_documents WHERE expiry_date IS NOT NULL`
   ).all() as Array<{
     id: number;
@@ -38,10 +36,6 @@ export function updateAllDocumentStatuses(): {
     vehicle_id: number | null;
   }>;
 
-  const updateStmt = db.prepare(
-    `UPDATE compliance_documents SET status = ?, updated_at = datetime('now') WHERE id = ?`
-  );
-
   for (const doc of docs) {
     const check = checkDocumentExpiry(doc);
     if (!check) continue;
@@ -52,13 +46,14 @@ export function updateAllDocumentStatuses(): {
     else newStatus = "valid";
 
     if (newStatus !== doc.status) {
-      updateStmt.run(newStatus, doc.id);
+      await db.prepare(
+        `UPDATE compliance_documents SET status = $1, updated_at = NOW() WHERE id = $2`
+      ).run(newStatus, doc.id);
       documentsUpdated++;
       if (newStatus === "expired") documentsExpired++;
       if (newStatus === "expiring_soon") documentsExpiringSoon++;
     }
 
-    // Create/update alert for critical/warning statuses
     if (check.severity !== "info") {
       const entityCol = doc.shipment_id
         ? "shipment_id"
@@ -72,16 +67,16 @@ export function updateAllDocumentStatuses(): {
           : "expiring in " + check.daysRemaining + " days"
       }`;
 
-      const existing = db
+      const existing = await db
         .prepare(
-          `SELECT id FROM alerts WHERE title = ? AND is_resolved = 0 AND ${entityCol} = ? LIMIT 1`
+          `SELECT id FROM alerts WHERE title = $1 AND is_resolved = 0 AND ${entityCol} = $2 LIMIT 1`
         )
         .get(title, entityId) as { id: number } | undefined;
 
       if (!existing) {
-        db.prepare(
+        await db.prepare(
           `INSERT INTO alerts (${entityCol}, alert_type, severity, title, description)
-           VALUES (?, ?, ?, ?, ?)`
+           VALUES ($1, $2, $3, $4, $5)`
         ).run(
           entityId,
           check.status === "expired" ? "expiry" : "compliance",
@@ -99,7 +94,7 @@ export function updateAllDocumentStatuses(): {
   }
 
   // ── 2. Scan driver expiry fields ──
-  const drivers = db.prepare(
+  const drivers = await db.prepare(
     `SELECT id, license_expiry, pdp_expiry, dg_expiry, medical_certificate_expiry,
             passport_expiry, hiv_cert_expiry, status
      FROM drivers WHERE status != 'suspended'`
@@ -132,16 +127,16 @@ export function updateAllDocumentStatuses(): {
             ? "EXPIRED"
             : "expiring in " + check.daysRemaining + " days"
         }`;
-        const existing = db
+        const existing = await db
           .prepare(
-            `SELECT id FROM alerts WHERE title = ? AND is_resolved = 0 AND driver_id = ? LIMIT 1`
+            `SELECT id FROM alerts WHERE title = $1 AND is_resolved = 0 AND driver_id = $2 LIMIT 1`
           )
           .get(title, d.id) as { id: number } | undefined;
 
         if (!existing) {
-          db.prepare(
+          await db.prepare(
             `INSERT INTO alerts (driver_id, alert_type, severity, title, description)
-             VALUES (?, ?, ?, ?, ?)`
+             VALUES ($1, $2, $3, $4, $5)`
           ).run(
             d.id,
             check.status === "expired" ? "expiry" : "compliance",
@@ -160,7 +155,7 @@ export function updateAllDocumentStatuses(): {
   }
 
   // ── 3. Scan vehicle expiry fields ──
-  const vehicles = db.prepare(
+  const vehicles = await db.prepare(
     `SELECT id, registration_expiry, roadworthiness_expiry, insurance_expiry,
             cross_border_permit_expiry, status
      FROM vehicles WHERE status != 'retired'`
@@ -189,16 +184,16 @@ export function updateAllDocumentStatuses(): {
             ? "EXPIRED"
             : "expiring in " + check.daysRemaining + " days"
         }`;
-        const existing = db
+        const existing = await db
           .prepare(
-            `SELECT id FROM alerts WHERE title = ? AND is_resolved = 0 AND vehicle_id = ? LIMIT 1`
+            `SELECT id FROM alerts WHERE title = $1 AND is_resolved = 0 AND vehicle_id = $2 LIMIT 1`
           )
           .get(title, v.id) as { id: number } | undefined;
 
         if (!existing) {
-          db.prepare(
+          await db.prepare(
             `INSERT INTO alerts (vehicle_id, alert_type, severity, title, description)
-             VALUES (?, ?, ?, ?, ?)`
+             VALUES ($1, $2, $3, $4, $5)`
           ).run(
             v.id,
             check.status === "expired" ? "expiry" : "compliance",
@@ -217,20 +212,17 @@ export function updateAllDocumentStatuses(): {
   }
 
   // ── 4. Resolve alerts for documents that became valid ──
-  // Find alerts for docs that are now valid
-  const resolvedAlerts = db
-    .prepare(
-      `UPDATE alerts SET is_resolved = 1, resolved_at = datetime('now')
-       WHERE is_resolved = 0
-         AND alert_type IN ('compliance', 'expiry')
-         AND id NOT IN (
-           SELECT DISTINCT a.id FROM alerts a
-           JOIN compliance_documents cd ON
-             (a.shipment_id = cd.shipment_id OR a.driver_id = cd.driver_id OR a.vehicle_id = cd.vehicle_id)
-           WHERE cd.status IN ('expired', 'expiring_soon')
-         )`
-    )
-    .run();
+  const resolvedAlerts = await db.prepare(
+    `UPDATE alerts SET is_resolved = 1, resolved_at = NOW()
+     WHERE is_resolved = 0
+       AND alert_type IN ('compliance', 'expiry')
+       AND id NOT IN (
+         SELECT DISTINCT a.id FROM alerts a
+         JOIN compliance_documents cd ON
+           (a.shipment_id = cd.shipment_id OR a.driver_id = cd.driver_id OR a.vehicle_id = cd.vehicle_id)
+         WHERE cd.status IN ('expired', 'expiring_soon')
+       )`
+  ).run();
 
   return {
     documentsUpdated,

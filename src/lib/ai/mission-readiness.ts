@@ -35,15 +35,6 @@ function daysUntil(dateStr: string | null): number {
   return Math.floor((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-/**
- * Scores an expiry date on a 0–100 scale based on warning zones:
- *   > 30 days → 100
- *   14–30 days → 70
- *   7–14 days → 50
- *   1–7 days → 25
- *   0 or expired → 0
- *   missing (null) → 0
- */
 function scoreExpiry(days: number): number {
   if (days <= 0) return 0;
   if (days <= 7) return 25;
@@ -66,11 +57,11 @@ function nowISO(): string {
 // F1: Compliance Document Completeness (30%)
 // ═══════════════════════════════════════════════════════════════════
 
-function scoreF1(
+async function scoreF1(
   shipment: Record<string, unknown>,
   driverId: number | null,
   vehicleId: number | null
-): { rawScore: number; details: string[]; hardGateMissing: string[] } {
+): Promise<{ rawScore: number; details: string[]; hardGateMissing: string[] }> {
   const db = getDb();
   const hardGateMissing: string[] = [];
 
@@ -80,11 +71,10 @@ function scoreF1(
     is_dangerous_goods: shipment.is_dangerous_goods as number,
   });
 
-  // Get all docs linked to this shipment, driver, or vehicle
-  const docs = db
+  const docs = await db
     .prepare(
       `SELECT * FROM compliance_documents
-       WHERE shipment_id = ? OR driver_id = ? OR vehicle_id = ?`
+       WHERE shipment_id = $1 OR driver_id = $2 OR vehicle_id = $3`
     )
     .all(shipment.id as number, driverId, vehicleId) as Array<{
     document_type: string;
@@ -125,16 +115,16 @@ function scoreF1(
 // F2: Document Expiry Status (20%)
 // ═══════════════════════════════════════════════════════════════════
 
-function scoreF2(
+async function scoreF2(
   shipmentId: number,
   driverId: number | null,
   vehicleId: number | null
-): { rawScore: number; details: string[]; hardGateExpired: boolean } {
+): Promise<{ rawScore: number; details: string[]; hardGateExpired: boolean }> {
   const db = getDb();
-  const docs = db
+  const docs = await db
     .prepare(
       `SELECT * FROM compliance_documents
-       WHERE (shipment_id = ? OR driver_id = ? OR vehicle_id = ?)
+       WHERE (shipment_id = $1 OR driver_id = $2 OR vehicle_id = $3)
          AND expiry_date IS NOT NULL`
     )
     .all(shipmentId, driverId, vehicleId) as Array<{
@@ -179,13 +169,13 @@ function scoreF2(
 // F3: Driver Readiness (15%)
 // ═══════════════════════════════════════════════════════════════════
 
-function scoreF3(driverId: number | null): { rawScore: number; details: string[]; hardGateExpired: boolean } {
+async function scoreF3(driverId: number | null): Promise<{ rawScore: number; details: string[]; hardGateExpired: boolean }> {
   if (!driverId) {
     return { rawScore: 0, details: ["✗ No driver assigned"], hardGateExpired: false };
   }
 
   const db = getDb();
-  const driver = db.prepare("SELECT * FROM drivers WHERE id = ?").get(driverId) as Record<string, unknown> | undefined;
+  const driver = await db.prepare("SELECT * FROM drivers WHERE id = $1").get(driverId) as Record<string, unknown> | undefined;
 
   if (!driver) {
     return { rawScore: 0, details: ["✗ Driver not found"], hardGateExpired: false };
@@ -228,13 +218,13 @@ function scoreF3(driverId: number | null): { rawScore: number; details: string[]
 // F4: Vehicle Readiness (15%)
 // ═══════════════════════════════════════════════════════════════════
 
-function scoreF4(vehicleId: number | null): { rawScore: number; details: string[]; hardGateExpired: boolean } {
+async function scoreF4(vehicleId: number | null): Promise<{ rawScore: number; details: string[]; hardGateExpired: boolean }> {
   if (!vehicleId) {
     return { rawScore: 0, details: ["✗ No vehicle assigned"], hardGateExpired: false };
   }
 
   const db = getDb();
-  const vehicle = db.prepare("SELECT * FROM vehicles WHERE id = ?").get(vehicleId) as Record<string, unknown> | undefined;
+  const vehicle = await db.prepare("SELECT * FROM vehicles WHERE id = $1").get(vehicleId) as Record<string, unknown> | undefined;
 
   if (!vehicle) {
     return { rawScore: 0, details: ["✗ Vehicle not found"], hardGateExpired: false };
@@ -276,7 +266,7 @@ function scoreF4(vehicleId: number | null): { rawScore: number; details: string[
 function scoreF5(shipment: Record<string, unknown>): { rawScore: number; details: string[] } {
   const details: string[] = [];
   let pass = 0;
-  let total = 4; // border crossings identified, ETD set, ETA set, at least one border per country entry
+  let total = 4;
 
   const borders = JSON.parse((shipment.border_crossings as string) || "[]");
   if (borders.length > 0) {
@@ -289,7 +279,7 @@ function scoreF5(shipment: Record<string, unknown>): { rawScore: number; details
     } else {
       details.push("✓ Domestic trip — no border crossings needed");
       pass++;
-      total--; // Don't penalize domestic
+      total--;
     }
   }
 
@@ -307,7 +297,6 @@ function scoreF5(shipment: Record<string, unknown>): { rawScore: number; details
     details.push("✗ No ETA set");
   }
 
-  // Check permits per transit country (simplified: if cross-border, border_crossings should exist)
   if (borders.length > 0) {
     pass++;
     details.push("✓ Route documentation captured");
@@ -377,6 +366,50 @@ function scoreF6(shipment: Record<string, unknown>): { rawScore: number; details
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Alert helpers
+// ═══════════════════════════════════════════════════════════════════
+
+async function upsertAlert(
+  db: ReturnType<typeof getDb>,
+  params: {
+    shipment_id?: number | null;
+    alert_type: string;
+    severity: string;
+    title: string;
+    description: string;
+  }
+): Promise<void> {
+  const existing = await db
+    .prepare(
+      `SELECT id FROM alerts
+       WHERE alert_type = $1 AND title = $2 AND is_resolved = 0
+         AND ($3::int IS NULL OR shipment_id = $4)
+       LIMIT 1`
+    )
+    .get(params.alert_type, params.title, params.shipment_id, params.shipment_id) as
+    | { id: number }
+    | undefined;
+
+  if (existing) {
+    await db.prepare(
+      `UPDATE alerts SET severity = $1, description = $2, created_at = NOW()
+       WHERE id = $3`
+    ).run(params.severity, params.description, existing.id);
+  } else {
+    await db.prepare(
+      `INSERT INTO alerts (shipment_id, alert_type, severity, title, description)
+       VALUES ($1, $2, $3, $4, $5)`
+    ).run(
+      params.shipment_id || null,
+      params.alert_type,
+      params.severity,
+      params.title,
+      params.description
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Main: calculateMissionReadiness
 // ═══════════════════════════════════════════════════════════════════
 
@@ -385,8 +418,8 @@ export async function calculateMissionReadiness(
 ): Promise<MissionReadinessResult> {
   const db = getDb();
 
-  const shipment = db
-    .prepare("SELECT * FROM shipments WHERE id = ?")
+  const shipment = await db
+    .prepare("SELECT * FROM shipments WHERE id = $1")
     .get(shipmentId) as Record<string, unknown> | undefined;
 
   if (!shipment) {
@@ -397,14 +430,14 @@ export async function calculateMissionReadiness(
   const vehicleId = shipment.vehicle_id as number | null;
 
   // ── Run all six factor scorers ──
-  const f1 = scoreF1(shipment, driverId, vehicleId);
-  const f2 = scoreF2(shipmentId, driverId, vehicleId);
-  const f3 = scoreF3(driverId);
-  const f4 = scoreF4(vehicleId);
+  const f1 = await scoreF1(shipment, driverId, vehicleId);
+  const f2 = await scoreF2(shipmentId, driverId, vehicleId);
+  const f3 = await scoreF3(driverId);
+  const f4 = await scoreF4(vehicleId);
   const f5 = scoreF5(shipment);
   const f6 = scoreF6(shipment);
 
-  // ── Hard gate: if any legally-mandatory doc is expired or missing → cap at 49 ──
+  // ── Hard gate ──
   const hardGateTriggered =
     f1.hardGateMissing.length > 0 ||
     f2.hardGateExpired ||
@@ -447,14 +480,13 @@ export async function calculateMissionReadiness(
     details: detailsMap[w.factor] || [],
   }));
 
-  // Aggregate score from weighted factors
   const rawTotal = factors.reduce((sum, f) => sum + f.weightedScore, 0);
   const score = hardGateTriggered ? Math.min(rawTotal, 49) : rawTotal;
 
   // Update the shipment record
   const now = nowISO();
-  db.prepare(
-    `UPDATE shipments SET mission_readiness_score = ?, readiness_calculated_at = ?, updated_at = ? WHERE id = ?`
+  await db.prepare(
+    `UPDATE shipments SET mission_readiness_score = $1, readiness_calculated_at = $2, updated_at = $3 WHERE id = $4`
   ).run(score, now, now, shipmentId);
 
   // ── Create/update hard gate alert ──
@@ -462,31 +494,30 @@ export async function calculateMissionReadiness(
     const hardGateTitle = `Shipment cannot depart — hard gate triggered`;
     const hardGateDesc = `Mission Readiness Score capped at ${score}/100. Reasons: ${hardGateReasons.join("; ")}`;
 
-    // Check for existing unresolved hard gate alert for this shipment
-    const existing = db
+    const existing = await db
       .prepare(
         `SELECT id FROM alerts 
-         WHERE shipment_id = ? AND alert_type = 'risk' AND title = ? AND is_resolved = 0 
+         WHERE shipment_id = $1 AND alert_type = 'risk' AND title = $2 AND is_resolved = 0 
          LIMIT 1`
       )
       .get(shipmentId, hardGateTitle) as { id: number } | undefined;
 
     if (existing) {
-      db.prepare(
-        `UPDATE alerts SET severity = 'critical', description = ?, created_at = datetime('now')
-         WHERE id = ?`
+      await db.prepare(
+        `UPDATE alerts SET severity = 'critical', description = $1, created_at = NOW()
+         WHERE id = $2`
       ).run(hardGateDesc, existing.id);
     } else {
-      db.prepare(
+      await db.prepare(
         `INSERT INTO alerts (shipment_id, alert_type, severity, title, description)
-         VALUES (?, 'risk', 'critical', ?, ?)`
+         VALUES ($1, 'risk', 'critical', $2, $3)`
       ).run(shipmentId, hardGateTitle, hardGateDesc);
     }
   } else {
-    // Resolve old hard gate alert if the gate is no longer triggered
-    db.prepare(
-      `UPDATE alerts SET is_resolved = 1, resolved_at = datetime('now')
-       WHERE shipment_id = ? AND alert_type = 'risk' 
+    // Resolve old hard gate alert
+    await db.prepare(
+      `UPDATE alerts SET is_resolved = 1, resolved_at = NOW()
+       WHERE shipment_id = $1 AND alert_type = 'risk' 
          AND title = 'Shipment cannot depart — hard gate triggered' 
          AND is_resolved = 0`
     ).run(shipmentId);
