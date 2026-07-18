@@ -11,6 +11,7 @@ import {
   BrainCircuit,
   BarChart3,
   Truck,
+  CreditCard,
   Settings,
   Menu,
   X,
@@ -30,6 +31,7 @@ const navItems = [
   },
   { href: "/executive", label: "Executive", icon: BarChart3 },
   { href: "/fleet", label: "Fleet", icon: Truck },
+  { href: "/payment", label: "Payment", icon: CreditCard },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

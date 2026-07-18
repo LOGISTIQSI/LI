@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Check if brief already exists for the requested date
-    let brief = getStoredBrief(companyId, targetDate);
+    let brief = await getStoredBrief(companyId, targetDate);
 
     if (!brief && shouldAutoGenerate) {
       // Generate new brief for today
