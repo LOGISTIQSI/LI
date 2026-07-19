@@ -9,6 +9,7 @@ export default function ForgotPasswordPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [sentTo, setSentTo] = useState("");
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -36,6 +37,7 @@ export default function ForgotPasswordPage() {
         return;
       }
 
+      setSentTo(email.trim());
       setSuccess(true);
     } catch {
       setError("Network error. Please check your connection and try again.");
@@ -54,15 +56,22 @@ export default function ForgotPasswordPage() {
             Check your email
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-            If an account with that email exists, a reset link has been
-            generated. Contact support at{" "}
-            <a
-              href="mailto:logistiqs.intelligence@proton.me"
+            If an account with{" "}
+            <span className="font-medium text-slate-700 dark:text-slate-300">
+              {sentTo}
+            </span>{" "}
+            exists, we&apos;ve sent a password reset link. Check your inbox and
+            follow the instructions to reset your password.
+          </p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-4">
+            Didn&apos;t receive it? Check your spam folder, or{" "}
+            <button
+              onClick={() => { setSuccess(false); setEmail(sentTo); }}
               className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
             >
-              logistiqs.intelligence@proton.me
-            </a>{" "}
-            with your email to complete the reset.
+              try again
+            </button>
+            .
           </p>
         </div>
 
