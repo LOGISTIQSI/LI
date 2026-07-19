@@ -12,7 +12,64 @@ import {
   AlertTriangle,
   Check,
   Loader2,
+  Upload,
 } from "lucide-react";
+
+function FileUploadField({
+  label,
+  accept,
+  file,
+  onChange,
+}: {
+  label: string;
+  accept: string;
+  file: File | null;
+  onChange: (file: File | null) => void;
+}) {
+  const inputId = `file-${label.replace(/\s+/g, "-").toLowerCase()}`;
+
+  return (
+    <div>
+      <label
+        htmlFor={inputId}
+        className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+      >
+        {label}
+      </label>
+      <label
+        htmlFor={inputId}
+        className="flex items-center gap-2 w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors"
+      >
+        <Upload className="h-4 w-4 text-slate-400 flex-shrink-0" />
+        <span
+          className={
+            file
+              ? "text-slate-900 dark:text-slate-100 truncate"
+              : "text-slate-400"
+          }
+        >
+          {file ? file.name : "Choose file..."}
+        </span>
+        <input
+          id={inputId}
+          type="file"
+          accept={accept}
+          className="hidden"
+          onChange={(e) => onChange(e.target.files?.[0] || null)}
+        />
+      </label>
+      {file && (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="mt-1 text-xs text-slate-400 hover:text-red-500 transition-colors"
+        >
+          Remove
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function NewVehiclePage() {
   const router = useRouter();
@@ -28,6 +85,11 @@ export default function NewVehiclePage() {
     permit_number: "",
     permit_expiry: "",
   });
+
+  const [registrationFile, setRegistrationFile] = useState<File | null>(null);
+  const [insuranceFile, setInsuranceFile] = useState<File | null>(null);
+  const [roadworthyFile, setRoadworthyFile] = useState<File | null>(null);
+  const [permitFile, setPermitFile] = useState<File | null>(null);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -69,7 +131,13 @@ export default function NewVehiclePage() {
       const res = await fetch("/api/vehicles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          registration_file: registrationFile?.name || null,
+          insurance_file: insuranceFile?.name || null,
+          roadworthy_file: roadworthyFile?.name || null,
+          permit_file: permitFile?.name || null,
+        }),
       });
 
       if (!res.ok) {
@@ -133,6 +201,12 @@ export default function NewVehiclePage() {
                 <p className="text-xs text-red-500 mt-1">{errors.registration_number}</p>
               )}
             </div>
+            <FileUploadField
+              label="Registration Document"
+              accept=".jpg,.png,.pdf"
+              file={registrationFile}
+              onChange={setRegistrationFile}
+            />
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 VIN
@@ -145,6 +219,12 @@ export default function NewVehiclePage() {
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-mono"
               />
             </div>
+            <FileUploadField
+              label="Insurance Certificate"
+              accept=".jpg,.png,.pdf"
+              file={insuranceFile}
+              onChange={setInsuranceFile}
+            />
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 Make <span className="text-red-500">*</span>
@@ -204,6 +284,12 @@ export default function NewVehiclePage() {
                 <p className="text-xs text-red-500 mt-1">{errors.year}</p>
               )}
             </div>
+            <FileUploadField
+              label="Roadworthiness Certificate"
+              accept=".jpg,.png,.pdf"
+              file={roadworthyFile}
+              onChange={setRoadworthyFile}
+            />
           </div>
         </section>
 
@@ -261,6 +347,12 @@ export default function NewVehiclePage() {
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               />
             </div>
+            <FileUploadField
+              label="Permit Document"
+              accept=".jpg,.png,.pdf"
+              file={permitFile}
+              onChange={setPermitFile}
+            />
           </div>
         </section>
 
