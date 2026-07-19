@@ -192,7 +192,18 @@ export async function initializeDatabase(db: ReturnType<typeof getDb>): Promise<
     );
 
     -- ============================================================
-    -- 9. sessions
+    -- 9. password_resets
+    -- ============================================================
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token      TEXT    NOT NULL UNIQUE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    -- ============================================================
+    -- 10. sessions
     -- ============================================================
     CREATE TABLE IF NOT EXISTS sessions (
       id         SERIAL PRIMARY KEY,
@@ -203,7 +214,7 @@ export async function initializeDatabase(db: ReturnType<typeof getDb>): Promise<
     );
 
     -- ============================================================
-    -- 10. intelligence_briefs
+    -- 11. intelligence_briefs
     -- ============================================================
     CREATE TABLE IF NOT EXISTS intelligence_briefs (
       id                     SERIAL PRIMARY KEY,
@@ -263,6 +274,10 @@ export async function initializeDatabase(db: ReturnType<typeof getDb>): Promise<
     `CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)`,
     `CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`,
 
+    // password_resets
+    `CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token)`,
+    `CREATE INDEX IF NOT EXISTS idx_password_resets_user_id ON password_resets(user_id)`,
+
     // intelligence_briefs
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_briefs_company_date ON intelligence_briefs(company_id, brief_date)`,
   ];
@@ -286,7 +301,7 @@ export async function initializeDatabase(db: ReturnType<typeof getDb>): Promise<
   await db.exec(`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS bank_proof_document TEXT`);
 
   // ═══════════════════════════════════════════════════════════════
-  // 11. settlements
+  // 12. settlements
   // ═══════════════════════════════════════════════════════════════
   await db.exec(`
     CREATE TABLE IF NOT EXISTS settlements (

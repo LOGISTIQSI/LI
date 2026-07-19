@@ -1,57 +1,82 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  LogIn,
-  Eye,
-  EyeOff,
-  AlertCircle,
-  Loader2,
-} from "lucide-react";
+import { ArrowLeft, Mail, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
 
-export default function LoginPage() {
-  const router = useRouter();
+export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
 
-    if (!email.trim() || !password.trim()) {
-      setError("Please enter your email and password.");
+    if (!email.trim()) {
+      setError("Please enter your email address.");
       return;
     }
 
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch("/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ email: email.trim() }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "Login failed. Please try again.");
+        setError(data.error || "Something went wrong. Please try again.");
         setLoading(false);
         return;
       }
 
-      // Login successful — redirect to dashboard
-      router.push("/");
-      router.refresh();
+      setSuccess(true);
     } catch {
       setError("Network error. Please check your connection and try again.");
       setLoading(false);
     }
+  }
+
+  if (success) {
+    return (
+      <div className="w-full max-w-md px-4 text-center">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
+          <div className="h-14 w-14 rounded-full bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center mx-auto mb-4">
+            <CheckCircle2 className="h-7 w-7 text-emerald-500" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-3">
+            Check your email
+          </h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+            If an account with that email exists, a reset link has been
+            generated. Contact support at{" "}
+            <a
+              href="mailto:logistiqs.intelligence@proton.me"
+              className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+            >
+              logistiqs.intelligence@proton.me
+            </a>{" "}
+            with your email to complete the reset.
+          </p>
+        </div>
+
+        <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-6">
+          <Link
+            href="/login"
+            className="inline-flex items-center gap-1.5 text-blue-600 dark:text-blue-400 hover:underline font-medium"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to sign in
+          </Link>
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -64,10 +89,10 @@ export default function LoginPage() {
           </div>
         </Link>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-          Welcome back
+          Reset your password
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Sign in to your LOGISTIQS Intelligence account
+          Enter your email to receive a password reset link
         </p>
       </div>
 
@@ -100,49 +125,6 @@ export default function LoginPage() {
             />
           </div>
 
-          {/* Password */}
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
-            >
-              Password
-            </label>
-            <div className="relative">
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-4 py-2.5 pr-11 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition-colors"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Forgot password */}
-          <div className="text-right">
-            <Link
-              href="/forgot-password"
-              className="text-sm text-blue-600 dark:text-blue-400 hover:underline font-medium"
-            >
-              Forgot password?
-            </Link>
-          </div>
-
           {/* Submit */}
           <button
             type="submit"
@@ -152,21 +134,21 @@ export default function LoginPage() {
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <LogIn className="h-4 w-4" />
+              <Mail className="h-4 w-4" />
             )}
-            {loading ? "Signing in..." : "Sign in"}
+            {loading ? "Sending..." : "Send reset link"}
           </button>
         </form>
       </div>
 
       {/* Footer */}
       <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-6">
-        Don&apos;t have an account?{" "}
         <Link
-          href="/register"
-          className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+          href="/login"
+          className="inline-flex items-center gap-1.5 text-blue-600 dark:text-blue-400 hover:underline font-medium"
         >
-          Create an account
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to sign in
         </Link>
       </p>
     </div>
