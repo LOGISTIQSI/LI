@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Building2,
+  User,
   Eye,
   EyeOff,
   AlertCircle,
   Loader2,
   CheckCircle2,
+  Truck,
 } from "lucide-react";
 
 const COUNTRIES = [
@@ -27,8 +29,11 @@ const COUNTRIES = [
   "Lesotho",
 ];
 
+type RegistrationType = "company" | "driver";
+
 export default function RegisterPage() {
   const router = useRouter();
+  const [registrationType, setRegistrationType] = useState<RegistrationType>("company");
   const [companyName, setCompanyName] = useState("");
   const [companyType, setCompanyType] = useState("");
   const [fullName, setFullName] = useState("");
@@ -45,17 +50,30 @@ export default function RegisterPage() {
     e.preventDefault();
     setError("");
 
-    if (
-      !companyName.trim() ||
-      !companyType ||
-      !fullName.trim() ||
-      !email.trim() ||
-      !phone.trim() ||
-      !country ||
-      !password
-    ) {
-      setError("All fields are required.");
-      return;
+    if (registrationType === "company") {
+      if (
+        !companyName.trim() ||
+        !companyType ||
+        !fullName.trim() ||
+        !email.trim() ||
+        !phone.trim() ||
+        !country ||
+        !password
+      ) {
+        setError("All fields are required.");
+        return;
+      }
+    } else {
+      if (
+        !fullName.trim() ||
+        !email.trim() ||
+        !phone.trim() ||
+        !country ||
+        !password
+      ) {
+        setError("All fields are required.");
+        return;
+      }
     }
 
     if (password.length < 8) {
@@ -66,18 +84,24 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
+      const body: Record<string, string> = {
+        registrationType,
+        fullName: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        country,
+        password,
+      };
+
+      if (registrationType === "company") {
+        body.companyName = companyName.trim();
+        body.companyType = companyType;
+      }
+
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          companyName: companyName.trim(),
-          companyType,
-          fullName: fullName.trim(),
-          email: email.trim(),
-          phone: phone.trim(),
-          country,
-          password,
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -90,9 +114,13 @@ export default function RegisterPage() {
 
       setSuccess(true);
 
-      // Redirect to dashboard after a brief pause
+      // Redirect based on registration type
       setTimeout(() => {
-        router.push("/");
+        if (registrationType === "driver") {
+          router.push("/drivers/new");
+        } else {
+          router.push("/");
+        }
         router.refresh();
       }, 1500);
     } catch {
@@ -102,6 +130,7 @@ export default function RegisterPage() {
   }
 
   if (success) {
+    const isDriver = registrationType === "driver";
     return (
       <div className="w-full max-w-md px-4 text-center">
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
@@ -112,12 +141,16 @@ export default function RegisterPage() {
             Registration successful
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Redirecting you to your dashboard...
+            {isDriver
+              ? "Redirecting you to complete your driver profile..."
+              : "Redirecting you to your dashboard..."}
           </p>
         </div>
       </div>
     );
   }
+
+  const isCompany = registrationType === "company";
 
   return (
     <div className="w-full max-w-md px-4 py-8">
@@ -129,7 +162,7 @@ export default function RegisterPage() {
           </div>
         </Link>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-          Register your company
+          Create your account
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
           Join LOGISTIQS Intelligence — preventing transport failures before
@@ -139,6 +172,82 @@ export default function RegisterPage() {
 
       {/* Card */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 shadow-sm">
+        {/* Role Selector */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">
+            I am registering as a
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setRegistrationType("company")}
+              className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-left ${
+                isCompany
+                  ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30 shadow-sm"
+                  : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600"
+              }`}
+            >
+              <div
+                className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+                  isCompany
+                    ? "bg-blue-500 text-white"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                }`}
+              >
+                <Building2 className="h-5 w-5" />
+              </div>
+              <div className="text-center">
+                <span
+                  className={`text-sm font-semibold block ${
+                    isCompany
+                      ? "text-blue-700 dark:text-blue-300"
+                      : "text-slate-700 dark:text-slate-300"
+                  }`}
+                >
+                  Company
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Mining or logistics firm
+                </span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setRegistrationType("driver")}
+              className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-left ${
+                !isCompany
+                  ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30 shadow-sm"
+                  : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600"
+              }`}
+            >
+              <div
+                className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+                  !isCompany
+                    ? "bg-blue-500 text-white"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                }`}
+              >
+                <Truck className="h-5 w-5" />
+              </div>
+              <div className="text-center">
+                <span
+                  className={`text-sm font-semibold block ${
+                    !isCompany
+                      ? "text-blue-700 dark:text-blue-300"
+                      : "text-slate-700 dark:text-slate-300"
+                  }`}
+                >
+                  Independent Driver/Operator
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Owner-operator
+                </span>
+              </div>
+            </button>
+          </div>
+        </div>
+
         {error && (
           <div className="flex items-start gap-2.5 p-3 mb-5 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400 text-sm">
             <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
@@ -147,43 +256,48 @@ export default function RegisterPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Company Name */}
-          <div>
-            <label
-              htmlFor="companyName"
-              className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
-            >
-              Company name
-            </label>
-            <input
-              id="companyName"
-              type="text"
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="e.g. Kalahari Copper Mining"
-              className="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition-colors"
-            />
-          </div>
+          {/* Company fields — only for company registration */}
+          {isCompany && (
+            <>
+              {/* Company Name */}
+              <div>
+                <label
+                  htmlFor="companyName"
+                  className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Company name
+                </label>
+                <input
+                  id="companyName"
+                  type="text"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="e.g. Kalahari Copper Mining"
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition-colors"
+                />
+              </div>
 
-          {/* Company Type */}
-          <div>
-            <label
-              htmlFor="companyType"
-              className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
-            >
-              Company type
-            </label>
-            <select
-              id="companyType"
-              value={companyType}
-              onChange={(e) => setCompanyType(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition-colors"
-            >
-              <option value="">Select type...</option>
-              <option value="mining">Mining Company</option>
-              <option value="logistics">Logistics Company</option>
-            </select>
-          </div>
+              {/* Company Type */}
+              <div>
+                <label
+                  htmlFor="companyType"
+                  className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Company type
+                </label>
+                <select
+                  id="companyType"
+                  value={companyType}
+                  onChange={(e) => setCompanyType(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition-colors"
+                >
+                  <option value="">Select type...</option>
+                  <option value="mining">Mining Company</option>
+                  <option value="logistics">Logistics Company</option>
+                </select>
+              </div>
+            </>
+          )}
 
           {/* Full Name */}
           <div>
@@ -191,7 +305,7 @@ export default function RegisterPage() {
               htmlFor="fullName"
               className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
             >
-              Your full name
+              {isCompany ? "Your full name" : "Full name"}
             </label>
             <input
               id="fullName"
@@ -209,7 +323,7 @@ export default function RegisterPage() {
               htmlFor="email"
               className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
             >
-              Company email
+              {isCompany ? "Company email" : "Email address"}
             </label>
             <input
               id="email"
@@ -217,7 +331,7 @@ export default function RegisterPage() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
+              placeholder={isCompany ? "you@company.com" : "you@email.com"}
               className="w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition-colors"
             />
           </div>
@@ -304,10 +418,16 @@ export default function RegisterPage() {
           >
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
+            ) : isCompany ? (
               <Building2 className="h-4 w-4" />
+            ) : (
+              <User className="h-4 w-4" />
             )}
-            {loading ? "Creating account..." : "Register company"}
+            {loading
+              ? "Creating account..."
+              : isCompany
+              ? "Register company"
+              : "Register as driver"}
           </button>
         </form>
       </div>

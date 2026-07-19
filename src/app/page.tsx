@@ -15,6 +15,8 @@ import {
   Plus,
   ChevronRight,
   MapPin,
+  UserCheck,
+  ArrowRight,
 } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -160,6 +162,126 @@ function StatCard({ label, value, change, changeUp, icon, color }: StatCardProps
   );
 }
 
+// ── Driver Profile Banner ──
+
+function DriverProfileBanner() {
+  return (
+    <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="flex items-start gap-3">
+        <div className="h-10 w-10 rounded-lg bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center flex-shrink-0">
+          <UserCheck className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+            Complete your driver profile
+          </h3>
+          <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+            Add your license, PDP, passport, and banking details to start accepting shipments.
+          </p>
+        </div>
+      </div>
+      <Link
+        href="/drivers/new"
+        className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm flex-shrink-0"
+      >
+        Complete profile
+        <ArrowRight className="h-4 w-4" />
+      </Link>
+    </div>
+  );
+}
+
+// ── Driver Dashboard ──
+
+function DriverDashboard({ userName }: { userName: string }) {
+  return (
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+          Welcome, {userName}
+        </h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+          Your driver operations centre
+        </p>
+      </div>
+
+      {/* Profile Completion Banner */}
+      <DriverProfileBanner />
+
+      {/* Quick Actions */}
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+          <Truck className="h-4 w-4 text-blue-500" />
+          Quick Actions
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <Link
+            href="/drivers/new"
+            className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-all"
+          >
+            <div className="h-9 w-9 rounded-lg bg-blue-50 dark:bg-blue-950/30 flex items-center justify-center flex-shrink-0">
+              <UserCheck className="h-4 w-4 text-blue-500" />
+            </div>
+            <div>
+              <span className="text-sm font-medium text-slate-900 dark:text-white block">
+                Complete Driver Profile
+              </span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                License, PDP, banking details
+              </span>
+            </div>
+          </Link>
+
+          <Link
+            href="/vehicles/new"
+            className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-all"
+          >
+            <div className="h-9 w-9 rounded-lg bg-teal-50 dark:bg-teal-950/30 flex items-center justify-center flex-shrink-0">
+              <Truck className="h-4 w-4 text-teal-500" />
+            </div>
+            <div>
+              <span className="text-sm font-medium text-slate-900 dark:text-white block">
+                Register Vehicle
+              </span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Add your truck or fleet
+              </span>
+            </div>
+          </Link>
+
+          <Link
+            href="/shipments"
+            className="flex items-center gap-3 p-4 rounded-lg border border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-all"
+          >
+            <div className="h-9 w-9 rounded-lg bg-purple-50 dark:bg-purple-950/30 flex items-center justify-center flex-shrink-0">
+              <Package className="h-4 w-4 text-purple-500" />
+            </div>
+            <div>
+              <span className="text-sm font-medium text-slate-900 dark:text-white block">
+                View Shipments
+              </span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Active and completed loads
+              </span>
+            </div>
+          </Link>
+        </div>
+      </div>
+
+      {/* Status Card */}
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6">
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">
+          Your Status
+        </h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Complete your driver profile to become available for shipments. Once verified, you'll appear in transport operator searches and can be assigned to cross-border loads.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──
 
 export default function DashboardPage() {
@@ -200,6 +322,11 @@ export default function DashboardPage() {
     }
     load();
   }, []);
+
+  // If user is a driver, show the driver-specific dashboard
+  if (user && user.role === "driver") {
+    return <DriverDashboard userName={user.fullName} />;
+  }
 
   // Compute stats
   const activeShipments = shipments.filter((s) => ["in_transit", "at_border", "ready", "pending"].includes(s.status));

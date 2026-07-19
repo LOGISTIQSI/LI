@@ -156,7 +156,7 @@ export default function LoginPage() {
           href="/register"
           className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
         >
-          Register your company
+          Create an account
         </Link>
       </p>
     </div>
